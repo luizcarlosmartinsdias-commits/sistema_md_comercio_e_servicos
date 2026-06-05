@@ -1,13 +1,12 @@
 'use client';
 
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
 export function LoginForm() {
   const router = useRouter();
-  const params = useSearchParams();
-  const [error, setError] = useState(params.get('error'));
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   return (
