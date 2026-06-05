@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
+import { Suspense } from 'react';
 import { LoginForm } from '@/components/login-form';
 import { authOptions } from '@/lib/auth';
 
@@ -18,7 +19,9 @@ export default async function LoginPage() {
       </section>
       <section className="card">
         <h2 className="text-xl font-semibold">Entrar</h2>
-        <LoginForm />
+        <Suspense fallback={null}>
+          <LoginForm />
+        </Suspense>
         <Link href="/forgot-password" className="mt-4 inline-block text-sm font-medium text-mdblue">Esqueci minha senha</Link>
       </section>
     </main>
