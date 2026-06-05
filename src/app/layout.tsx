@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';
+import { SignOutButton } from '@/components/sign-out-button';
 import { authOptions } from '@/lib/auth';
-import { signOutAction } from '@/lib/actions';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -24,10 +24,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <span className="font-semibold text-mdgraphite">Portal MD</span>
             </Link>
             {session?.user ? (
-              <form action={signOutAction} className="flex items-center gap-3 text-sm text-slate-600">
+              <div className="flex items-center gap-3 text-sm text-slate-600">
                 <span>{session.user.name}</span>
-                <button className="btn-secondary" type="submit">Sair</button>
-              </form>
+                <SignOutButton />
+              </div>
             ) : null}
           </div>
         </header>
