@@ -12,6 +12,7 @@ MVP do portal B2B da MD Comercio e Servicos para controle de assistencia tecnica
 - NextAuth com credenciais
 - Hash de senha com bcrypt
 - Tokens temporarios para convites e redefinicao de senha
+- Envio de e-mail transacional com Resend ou mock local
 
 ## Como instalar
 
@@ -33,6 +34,8 @@ ADMIN_EMAIL="admin@mdcomercioeservicos.com.br"
 ADMIN_PASSWORD="troque-por-uma-senha-forte"
 ADMIN_SETUP_TOKEN="troque-por-um-token-longo-aleatorio"
 EMAIL_PROVIDER="mock"
+RESEND_API_KEY=""
+EMAIL_FROM=""
 WHATSAPP_PROVIDER="mock"
 STORAGE_PROVIDER="local"
 STORAGE_LOCAL_PATH="./uploads"
@@ -48,6 +51,27 @@ APP_URL="https://mdcomercioeservicos.com.br"
 ```
 
 Isso evita callbacks e cookies associados ao dominio errado da Vercel.
+
+## Envio de e-mail
+
+Por padrao, o sistema usa `EMAIL_PROVIDER=mock`. Nesse modo, o `NotificationService` apenas registra o envio em `NotificationLog` com status `MOCKED` e imprime uma linha simples no console.
+
+Para enviar e-mails reais pelo Resend, configure na Vercel:
+
+```bash
+EMAIL_PROVIDER="resend"
+RESEND_API_KEY="re_..."
+EMAIL_FROM="MD Comercio e Servicos <noreply@mdcomercioeservicos.com.br>"
+```
+
+O remetente usado em `EMAIL_FROM` precisa estar autorizado no Resend. Verifique o dominio/remetente no painel do Resend antes de ativar em producao.
+
+Com `EMAIL_PROVIDER=resend`, cada tentativa cria um `NotificationLog`:
+
+- `SENT`: Resend aceitou o envio.
+- `FAILED`: configuracao ausente ou falha retornada pelo Resend.
+
+Falhas tambem aparecem nos logs da Vercel com contexto seguro: destinatario, assunto, protocolo relacionado quando existir e mensagem do erro. A chave `RESEND_API_KEY`, senha e corpo do e-mail nao sao impressos nos logs.
 
 ## Migrations e seed local
 
@@ -84,6 +108,9 @@ No painel da Vercel, configure:
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `ADMIN_SETUP_TOKEN`
+- `EMAIL_PROVIDER`
+- `RESEND_API_KEY`, quando `EMAIL_PROVIDER=resend`
+- `EMAIL_FROM`, quando `EMAIL_PROVIDER=resend`
 
 Para o dominio atual, use:
 
