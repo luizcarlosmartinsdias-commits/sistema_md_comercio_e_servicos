@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { signOut } from 'next-auth/react';
 import { AttachmentType, QuoteStatus, ServiceRequestStatus, UserRole } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/session';
