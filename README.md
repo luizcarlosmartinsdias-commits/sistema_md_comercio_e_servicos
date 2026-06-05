@@ -94,6 +94,13 @@ Comportamento esperado:
 - Token incorreto: mostra erro de token invalido.
 - Erro de migration: mostra mensagem resumida sem expor `DATABASE_URL` ou segredos.
 
+Se o ambiente serverless da Vercel nao conseguir executar o Prisma CLI, use o fallback seguro em um terminal confiavel com as variaveis de producao configuradas:
+
+```bash
+npm install
+npm run prisma:deploy
+```
+
 ### 3. Criar administrador pelo navegador
 
 Depois que as migrations passarem, acesse:
