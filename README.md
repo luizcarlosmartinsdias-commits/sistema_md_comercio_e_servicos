@@ -46,32 +46,63 @@ npm run prisma:migrate
 npm run prisma:seed
 ```
 
+Para aplicar migrations em ambiente ja publicado:
+
+```bash
+npm run prisma:deploy
+```
+
 Usuario administrador inicial do seed local:
 
 - Nome: Administrador MD
 - E-mail: admin@mdcomercioeservicos.com.br
 - Senha: alterar123
 
-## Inicializar administrador na Vercel
+## Inicializar producao na Vercel
 
-Em producao, o banco da Vercel pode iniciar vazio. Para criar o primeiro administrador MD com seguranca, configure estas variaveis no painel da Vercel antes de executar o setup:
+Em producao, o banco da Vercel/Neon pode iniciar vazio. Siga esta ordem para preparar o banco e criar o primeiro administrador MD.
 
+### 1. Configurar variaveis
+
+No painel da Vercel, configure:
+
+- `DATABASE_URL`
+- `NEXTAUTH_SECRET`
+- `APP_URL`
 - `ADMIN_NAME`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `ADMIN_SETUP_TOKEN`
 
-Use uma senha forte em `ADMIN_PASSWORD` e um token longo/aleatorio em `ADMIN_SETUP_TOKEN`. O setup nao retorna a senha nem os valores sensiveis.
+Use uma senha forte em `ADMIN_PASSWORD` e um token longo/aleatorio em `ADMIN_SETUP_TOKEN`. As rotas temporarias nao retornam a senha, `DATABASE_URL` nem valores sensiveis.
 
-### Pelo navegador
+### 2. Executar migrations pelo navegador
 
 Depois do deploy, acesse:
+
+```text
+https://SEU-DOMINIO.vercel.app/setup-migrate
+```
+
+Informe `ADMIN_SETUP_TOKEN` e clique em `Executar migration`.
+
+Essa pagina chama `POST /api/setup/migrate`, que executa `prisma migrate deploy` no banco configurado em `DATABASE_URL`.
+
+Comportamento esperado:
+
+- Token correto: aplica migrations pendentes e cria as tabelas do Prisma.
+- Token incorreto: mostra erro de token invalido.
+- Erro de migration: mostra mensagem resumida sem expor `DATABASE_URL` ou segredos.
+
+### 3. Criar administrador pelo navegador
+
+Depois que as migrations passarem, acesse:
 
 ```text
 https://SEU-DOMINIO.vercel.app/setup-admin
 ```
 
-Informe o valor de `ADMIN_SETUP_TOKEN` e clique em `Criar administrador`.
+Informe `ADMIN_SETUP_TOKEN` e clique em `Criar administrador`.
 
 Comportamento esperado:
 
@@ -80,24 +111,16 @@ Comportamento esperado:
 - Token incorreto: mostra erro de token invalido.
 - Variaveis ausentes no servidor: mostra apenas os nomes das variaveis faltantes, sem exibir senha ou valores sensiveis.
 
-Esta pagina e temporaria e pode ser removida depois do primeiro setup. Apos criar o administrador, remova ou rotacione `ADMIN_SETUP_TOKEN` nas variaveis da Vercel para reduzir a superficie de ataque.
+### 4. Fazer login
 
-### Por curl
+Acesse a tela de login e entre com:
 
-Tambem e possivel chamar a rota diretamente:
+- E-mail: valor de `ADMIN_EMAIL`
+- Senha: valor de `ADMIN_PASSWORD`
 
-```bash
-curl -X POST "https://SEU-DOMINIO.vercel.app/api/setup/admin" \
-  -H "Content-Type: application/json" \
-  -d '{"token":"SEU_ADMIN_SETUP_TOKEN"}'
-```
+### 5. Remover acesso temporario
 
-Ou enviar o token pelo header `Authorization`:
-
-```bash
-curl -X POST "https://SEU-DOMINIO.vercel.app/api/setup/admin" \
-  -H "Authorization: Bearer SEU_ADMIN_SETUP_TOKEN"
-```
+As paginas `/setup-migrate` e `/setup-admin` sao temporarias e podem ser removidas depois da inicializacao. Apos concluir o setup, remova ou rotacione `ADMIN_SETUP_TOKEN` nas variaveis da Vercel para reduzir a superficie de ataque.
 
 ## Como iniciar
 
