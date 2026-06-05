@@ -14,7 +14,7 @@ export async function requireSessionUser(callbackUrl = defaultCallbackUrl) {
 
   const user = await prisma.user.findUnique({ where: { id: session.user.id }, include: { company: true } });
   if (!user?.active) {
-    console.warn('[auth] protected route with inactive or missing user', { userId: session.user.id });
+    console.warn('[auth] protected route with inactive or missing user', { callbackUrl });
     redirect(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
   }
 
