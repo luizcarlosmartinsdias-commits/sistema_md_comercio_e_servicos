@@ -9,7 +9,7 @@ export class NotificationService {
   constructor(private prisma: PrismaClient) {}
 
   async email(input: SendInput) {
-    const provider = process.env.EMAIL_PROVIDER ?? 'mock';
+    const provider = (process.env.EMAIL_PROVIDER ?? 'mock').toLowerCase();
     if (provider === 'resend') return this.sendResendEmail(input);
     return this.log(NotificationChannel.EMAIL, provider, input, 'MOCKED');
   }
@@ -34,50 +34,50 @@ export class NotificationService {
       throw new Error(message);
     }
 
+    const resend = new Resend(apiKey);
+    let response: Awaited<ReturnType<typeof resend.emails.send>>;
+
     try {
-      const resend = new Resend(apiKey);
-      const { data, error } = await resend.emails.send({
+      response = await resend.emails.send({
         from,
         to: input.recipient,
         subject: input.subject,
         text: input.body
       });
+    } catch (error) {
+      await this.logResendFailure(input, error);
+      throw error;
+    }
 
-      if (error) {
-        const message = error.message || 'Falha desconhecida ao enviar email pelo Resend.';
-        console.error('[notification:resend] Falha ao enviar email', {
-          recipient: input.recipient,
-          subject: input.subject,
-          serviceRequestId: input.serviceRequestId,
-          error: message
-        });
-        await this.log(NotificationChannel.EMAIL, 'resend', input, 'FAILED');
-        throw new Error(message);
-      }
+    if (response.error) {
+      const message = response.error.message || 'Falha desconhecida ao enviar email pelo Resend.';
+      await this.logResendFailure(input, new Error(message));
+      throw new Error(message);
+    }
 
-      console.info('[notification:resend] Email enviado', {
+    console.info('[notification:resend] Email enviado', {
+      recipient: input.recipient,
+      subject: input.subject,
+      serviceRequestId: input.serviceRequestId,
+      resendEmailId: response.data?.id
+    });
+
+    return this.log(NotificationChannel.EMAIL, 'resend', input, 'SENT');
+  }
+
+  private async logResendFailure(input: SendInput, error: unknown) {
+    if (error instanceof Error) {
+      console.error('[notification:resend] Falha ao enviar email', {
         recipient: input.recipient,
         subject: input.subject,
         serviceRequestId: input.serviceRequestId,
-        resendEmailId: data?.id
+        error: error.message
       });
-
-      return this.log(NotificationChannel.EMAIL, 'resend', input, 'SENT');
-    } catch (error) {
-      if (error instanceof Error) {
-        console.error('[notification:resend] Erro ao enviar email', {
-          recipient: input.recipient,
-          subject: input.subject,
-          serviceRequestId: input.serviceRequestId,
-          error: error.message
-        });
-      } else {
-        console.error('[notification:resend] Erro inesperado ao enviar email', { recipient: input.recipient, subject: input.subject, serviceRequestId: input.serviceRequestId });
-      }
-
-      await this.log(NotificationChannel.EMAIL, 'resend', input, 'FAILED');
-      throw error;
+    } else {
+      console.error('[notification:resend] Falha inesperada ao enviar email', { recipient: input.recipient, subject: input.subject, serviceRequestId: input.serviceRequestId });
     }
+
+    await this.log(NotificationChannel.EMAIL, 'resend', input, 'FAILED');
   }
 
   private async log(channel: NotificationChannel, provider: string, input: SendInput, status: NotificationStatus) {
