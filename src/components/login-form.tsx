@@ -2,49 +2,50 @@
 
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState, useTransition } from 'react';
+import { FormEvent, useState } from 'react';
 
 const dashboardPath = '/dashboard';
 
 export function LoginForm() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setPending(true);
 
     const form = event.currentTarget;
     const formData = new FormData(form);
     const email = String(formData.get('email') ?? '').trim();
     const password = String(formData.get('password') ?? '');
 
-    startTransition(async () => {
-      try {
-        const result = await signIn('credentials', {
-          email,
-          password,
-          redirect: false,
-          callbackUrl: dashboardPath
-        });
+    try {
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+        callbackUrl: dashboardPath
+      });
 
-        if (result?.error) {
-          setError('Credenciais invalidas ou usuario inativo.');
-          return;
-        }
-
-        if (result?.ok) {
-          router.refresh();
-          router.replace(normalizeInternalUrl(result.url) ?? dashboardPath);
-          return;
-        }
-
-        setError('Nao foi possivel confirmar o login. Tente novamente.');
-      } catch {
-        setError('Erro ao tentar entrar. Verifique sua conexao e tente novamente.');
+      if (result?.error) {
+        setError('Credenciais invalidas ou usuario inativo.');
+        return;
       }
-    });
+
+      if (result?.ok) {
+        router.push(normalizeInternalUrl(result.url) ?? dashboardPath);
+        router.refresh();
+        return;
+      }
+
+      setError('Nao foi possivel confirmar o login. Tente novamente.');
+    } catch {
+      setError('Erro ao tentar entrar. Verifique sua conexao e tente novamente.');
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
