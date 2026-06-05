@@ -54,16 +54,37 @@ Usuario administrador inicial do seed local:
 
 ## Inicializar administrador na Vercel
 
-Em producao, o banco da Vercel pode iniciar vazio. Para criar o primeiro administrador MD com seguranca, configure estas variaveis no painel da Vercel antes de chamar a rota de setup:
+Em producao, o banco da Vercel pode iniciar vazio. Para criar o primeiro administrador MD com seguranca, configure estas variaveis no painel da Vercel antes de executar o setup:
 
 - `ADMIN_NAME`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `ADMIN_SETUP_TOKEN`
 
-Use uma senha forte em `ADMIN_PASSWORD` e um token longo/aleatorio em `ADMIN_SETUP_TOKEN`. A rota nao retorna a senha nem os valores sensiveis.
+Use uma senha forte em `ADMIN_PASSWORD` e um token longo/aleatorio em `ADMIN_SETUP_TOKEN`. O setup nao retorna a senha nem os valores sensiveis.
 
-Depois do deploy, chame a rota uma unica vez:
+### Pelo navegador
+
+Depois do deploy, acesse:
+
+```text
+https://SEU-DOMINIO.vercel.app/setup-admin
+```
+
+Informe o valor de `ADMIN_SETUP_TOKEN` e clique em `Criar administrador`.
+
+Comportamento esperado:
+
+- Token correto e nenhum `ADMIN_MD` ativo: cria o administrador com senha em hash bcrypt.
+- `ADMIN_MD` ativo ja existente: informa que o administrador ja foi inicializado e nao cria outro usuario.
+- Token incorreto: mostra erro de token invalido.
+- Variaveis ausentes no servidor: mostra apenas os nomes das variaveis faltantes, sem exibir senha ou valores sensiveis.
+
+Esta pagina e temporaria e pode ser removida depois do primeiro setup. Apos criar o administrador, remova ou rotacione `ADMIN_SETUP_TOKEN` nas variaveis da Vercel para reduzir a superficie de ataque.
+
+### Por curl
+
+Tambem e possivel chamar a rota diretamente:
 
 ```bash
 curl -X POST "https://SEU-DOMINIO.vercel.app/api/setup/admin" \
@@ -71,21 +92,12 @@ curl -X POST "https://SEU-DOMINIO.vercel.app/api/setup/admin" \
   -d '{"token":"SEU_ADMIN_SETUP_TOKEN"}'
 ```
 
-Tambem e possivel enviar o token pelo header `Authorization`:
+Ou enviar o token pelo header `Authorization`:
 
 ```bash
 curl -X POST "https://SEU-DOMINIO.vercel.app/api/setup/admin" \
   -H "Authorization: Bearer SEU_ADMIN_SETUP_TOKEN"
 ```
-
-Comportamento esperado:
-
-- Se o token estiver incorreto, a rota retorna `401`.
-- Se faltar configuracao de ambiente, a rota retorna `500` indicando apenas os nomes das variaveis ausentes.
-- Se ainda nao houver `ADMIN_MD` ativo, a rota cria o usuario com senha em hash bcrypt.
-- Se ja existir um `ADMIN_MD` ativo, a rota retorna que o administrador ja foi inicializado e nao cria outro usuario.
-
-Apos criar o administrador, remova ou rotacione `ADMIN_SETUP_TOKEN` nas variaveis da Vercel para reduzir a superficie de ataque.
 
 ## Como iniciar
 
