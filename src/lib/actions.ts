@@ -6,7 +6,7 @@ import { AttachmentType, QuoteStatus, ServiceRequestStatus, UserRole } from '@pr
 import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/session';
 import { audit } from '@/lib/audit';
-import { canApproveQuote, canManageMd, canRequestInvoice } from '@/lib/rbac';
+import { canApproveQuote, canCreateRequest, canManageMd, canRequestInvoice } from '@/lib/rbac';
 import { addHours, createPlainToken, hashToken } from '@/lib/tokens';
 import { hashPassword } from '@/lib/password';
 import { nextProtocol } from '@/lib/protocol';
@@ -17,7 +17,7 @@ const notifications = new NotificationService(prisma);
 const appUrl = () => process.env.APP_URL ?? 'http://localhost:3000';
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 
-export async function signOutAction() { redirect('/api/auth/signout'); }
+export async function signOutAction() { redirect('/api/auth/signout?callbackUrl=/login'); }
 
 export async function createCompanyAction(form: FormData) {
   const user = await requireSessionUser();
@@ -31,7 +31,7 @@ export async function inviteUserAction(form: FormData) {
   const user = await requireSessionUser();
   if (!canManageMd(user.role)) throw new Error('Acesso negado');
   const role = text(form, 'role') as UserRole;
-  const companyId = text(form, 'companyId') || null;
+  const companyId = role === UserRole.ADMIN_MD ? null : text(form, 'companyId') || null;
   if (role !== UserRole.ADMIN_MD && !companyId) throw new Error('Usuarios clientes precisam de empresa vinculada');
   const plainToken = createPlainToken();
   const invitation = await prisma.invitationToken.create({ data: { email: text(form, 'email').toLowerCase(), name: text(form, 'name'), role, companyId, tokenHash: hashToken(plainToken), expiresAt: addHours(72), createdById: user.id } });
@@ -75,9 +75,8 @@ export async function resetPasswordAction(form: FormData) {
 
 export async function createServiceRequestAction(form: FormData) {
   const user = await requireSessionUser();
-  if (!user.companyId && !canManageMd(user.role)) throw new Error('Usuario sem empresa vinculada');
-  const companyId = user.companyId ?? text(form, 'companyId');
-  const request = await prisma.serviceRequest.create({ data: { protocol: await nextProtocol(), companyId, requesterId: user.id, setor: text(form, 'setor'), responsavel: text(form, 'responsavel'), telefone: text(form, 'telefone'), tipoAparelho: text(form, 'tipoAparelho'), marca: text(form, 'marca'), modelo: text(form, 'modelo'), serial: text(form, 'serial'), problema: text(form, 'problema'), observacoes: text(form, 'observacoes') || null, statusHistory: { create: { toStatus: ServiceRequestStatus.AGUARDANDO_RECOLHIMENTO, changedById: user.id, note: 'Solicitacao aberta' } } } });
+  if (!canCreateRequest(user.role) || !user.companyId) throw new Error('Usuario cliente sem empresa vinculada');
+  const request = await prisma.serviceRequest.create({ data: { protocol: await nextProtocol(), companyId: user.companyId, requesterId: user.id, setor: text(form, 'setor'), responsavel: text(form, 'responsavel'), telefone: text(form, 'telefone'), tipoAparelho: text(form, 'tipoAparelho'), marca: text(form, 'marca'), modelo: text(form, 'modelo'), serial: text(form, 'serial'), problema: text(form, 'problema'), observacoes: text(form, 'observacoes') || null, statusHistory: { create: { toStatus: ServiceRequestStatus.AGUARDANDO_RECOLHIMENTO, changedById: user.id, note: 'Solicitacao aberta' } } } });
   await notifications.notifyMd('Nova solicitacao de recolhimento', `${request.protocol} foi aberta.`, request.id);
   await audit(user.id, 'SERVICE_REQUEST_CREATED', 'ServiceRequest', request.id);
   redirect(`/requests/${request.id}`);
@@ -98,13 +97,14 @@ export async function createQuoteAction(form: FormData) {
   const user = await requireSessionUser();
   if (!canManageMd(user.role)) throw new Error('Acesso negado');
   const requestId = text(form, 'requestId');
+  const current = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
   const quantity = Number(text(form, 'quantity') || '1');
   const unitCents = Number(text(form, 'unitCents') || '0');
   let attachmentId: string | undefined;
   const file = form.get('file');
   if (file instanceof File && file.size > 0) attachmentId = (await saveAttachment(requestId, user.id, file, AttachmentType.ORCAMENTO)).id;
   const quote = await prisma.quote.create({ data: { serviceRequestId: requestId, title: text(form, 'title'), description: text(form, 'description') || null, status: QuoteStatus.ENVIADO, totalCents: quantity * unitCents, attachmentId, items: { create: { description: text(form, 'itemDescription'), quantity, unitCents } } } });
-  await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, statusHistory: { create: { fromStatus: ServiceRequestStatus.ORCAMENTO_EM_PRODUCAO, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: 'Orcamento enviado ao cliente' } } } });
+  await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: 'Orcamento enviado ao cliente' } } } });
   await notifyCompanyManagers(requestId, 'Orcamento aguardando aprovacao', `O orcamento ${quote.title} esta disponivel para aprovacao.`);
   await audit(user.id, 'QUOTE_CREATED', 'Quote', quote.id);
   revalidatePath(`/requests/${requestId}`);
@@ -134,6 +134,7 @@ export async function uploadAttachmentAction(form: FormData) {
   const file = form.get('file');
   if (!(file instanceof File) || file.size === 0) throw new Error('Arquivo obrigatorio');
   const type = text(form, 'type') as AttachmentType;
+  assertCanUploadAttachment(user.role, type);
   const attachment = await saveAttachment(requestId, user.id, file, type);
   const nextStatus = type === AttachmentType.OS_CLIENTE ? ServiceRequestStatus.OS_RECEBIDA_PARA_ASSINATURA : type === AttachmentType.OS_ASSINADA_MD ? ServiceRequestStatus.OS_ASSINADA_ENVIADA : type === AttachmentType.NOTA_FISCAL ? ServiceRequestStatus.NOTA_EMITIDA : null;
   if (nextStatus) await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: nextStatus, statusHistory: { create: { fromStatus: request.currentStatus, toStatus: nextStatus, changedById: user.id, note: `Anexo enviado: ${attachment.fileName}` } } } });
@@ -157,6 +158,12 @@ export async function requestInvoiceAction(form: FormData) {
 async function saveAttachment(requestId: string, userId: string, file: File, type: AttachmentType) {
   const stored = await StorageService.save(file, requestId);
   return prisma.attachment.create({ data: { serviceRequestId: requestId, uploadedById: userId, type, ...stored } });
+}
+
+function assertCanUploadAttachment(role: UserRole, type: AttachmentType) {
+  if (canManageMd(role)) return;
+  const allowedClientTypes = [AttachmentType.FOTO_PROBLEMA, AttachmentType.OS_CLIENTE, AttachmentType.OUTRO];
+  if (!allowedClientTypes.includes(type)) throw new Error('Tipo de anexo restrito a MD');
 }
 
 async function notifyCompanyManagers(requestId: string, subject: string, body: string) {
