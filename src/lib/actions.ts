@@ -162,7 +162,7 @@ async function saveAttachment(requestId: string, userId: string, file: File, typ
 
 function assertCanUploadAttachment(role: UserRole, type: AttachmentType) {
   if (canManageMd(role)) return;
-  const allowedClientTypes = [AttachmentType.FOTO_PROBLEMA, AttachmentType.OS_CLIENTE, AttachmentType.OUTRO];
+  const allowedClientTypes: AttachmentType[] = [AttachmentType.FOTO_PROBLEMA, AttachmentType.OS_CLIENTE, AttachmentType.OUTRO];
   if (!allowedClientTypes.includes(type)) throw new Error('Tipo de anexo restrito a MD');
 }
 
