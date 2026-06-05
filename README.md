@@ -25,6 +25,7 @@ Copie `.env.example` para `.env` e preencha pelo menos:
 
 ```bash
 DATABASE_URL="postgresql://usuario:senha@localhost:5432/md_portal?schema=public"
+NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="troque-por-um-segredo-forte"
 APP_URL="http://localhost:3000"
 ADMIN_NAME="Administrador MD"
@@ -38,6 +39,15 @@ STORAGE_LOCAL_PATH="./uploads"
 MD_NOTIFICATION_EMAIL="atendimento@mdcomercioeservicos.com.br"
 MD_WHATSAPP_NUMBER="5521999999999"
 ```
+
+Em producao no dominio publicado, configure `NEXTAUTH_URL` e `APP_URL` com o mesmo dominio canonico:
+
+```bash
+NEXTAUTH_URL="https://mdcomercioeservicos.com.br"
+APP_URL="https://mdcomercioeservicos.com.br"
+```
+
+Isso evita callbacks e cookies associados ao dominio errado da Vercel.
 
 ## Migrations e seed local
 
@@ -67,12 +77,18 @@ Em producao, o banco da Vercel/Neon pode iniciar vazio. Siga esta ordem para pre
 No painel da Vercel, configure:
 
 - `DATABASE_URL`
+- `NEXTAUTH_URL`
 - `NEXTAUTH_SECRET`
 - `APP_URL`
 - `ADMIN_NAME`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `ADMIN_SETUP_TOKEN`
+
+Para o dominio atual, use:
+
+- `NEXTAUTH_URL=https://mdcomercioeservicos.com.br`
+- `APP_URL=https://mdcomercioeservicos.com.br`
 
 Use uma senha forte em `ADMIN_PASSWORD` e um token longo/aleatorio em `ADMIN_SETUP_TOKEN`. As rotas temporarias nao retornam a senha, `DATABASE_URL` nem valores sensiveis.
 
