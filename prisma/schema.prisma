@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN_MD
+  CLIENTE_SOLICITANTE
+  CLIENTE_GESTOR
+  CLIENTE_FINANCEIRO
+}
+
+enum ServiceRequestStatus {
+  AGUARDANDO_RECOLHIMENTO
+  APARELHO_RECOLHIDO
+  ORCAMENTO_EM_PRODUCAO
+  AGUARDANDO_APROVACAO
+  ORCAMENTO_APROVADO
+  ORCAMENTO_RECUSADO
+  SERVICO_EM_EXECUCAO
+  SERVICO_CONCLUIDO
+  AGUARDANDO_OS_CLIENTE
+  OS_RECEBIDA_PARA_ASSINATURA
+  OS_ASSINADA_ENVIADA
+  AGUARDANDO_SOLICITACAO_NOTA
+  NOTA_SOLICITADA
+  NOTA_EMITIDA
+  FINALIZADO
+}
+
+enum QuoteStatus {
+  RASCUNHO
+  ENVIADO
+  APROVADO
+  RECUSADO
+}
+
+enum AttachmentType {
+  FOTO_PROBLEMA
+  ORCAMENTO
+  OS_CLIENTE
+  OS_ASSINADA_MD
+  NOTA_FISCAL
+  OUTRO
+}
+
+enum NotificationChannel {
+  EMAIL
+  WHATSAPP
+  INTERNAL
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  document  String?  @unique
+  email     String?
+  phone     String?
+  active    Boolean  @default(true)
+  users     User[]
+  requests  ServiceRequest[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id              String          @id @default(cuid())
+  name            String
+  email           String          @unique
+  passwordHash    String?
+  role            UserRole
+  companyId       String?
+  company         Company?        @relation(fields: [companyId], references: [id])
+  active          Boolean         @default(true)
+  invitationsSent InvitationToken[] @relation("InvitationCreator")
+  requests        ServiceRequest[] @relation("RequestRequester")
+  statusChanges   ServiceRequestStatusHistory[]
+  auditLogs       AuditLog[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model InvitationToken {
+  id           String   @id @default(cuid())
+  email        String
+  name         String
+  role         UserRole
+  companyId    String?
+  company      Company? @relation(fields: [companyId], references: [id])
+  tokenHash    String   @unique
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  createdById  String
+  createdBy    User     @relation("InvitationCreator", fields: [createdById], references: [id])
+  createdAt    DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model ServiceRequest {
+  id              String   @id @default(cuid())
+  protocol        String   @unique
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  requesterId     String
+  requester       User     @relation("RequestRequester", fields: [requesterId], references: [id])
+  setor           String
+  responsavel     String
+  telefone        String
+  tipoAparelho    String
+  marca           String
+  modelo          String
+  serial          String
+  problema        String
+  observacoes     String?
+  currentStatus   ServiceRequestStatus @default(AGUARDANDO_RECOLHIMENTO)
+  statusHistory   ServiceRequestStatusHistory[]
+  quotes          Quote[]
+  attachments     Attachment[]
+  notifications   NotificationLog[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ServiceRequestStatusHistory {
+  id               String   @id @default(cuid())
+  serviceRequestId String
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  fromStatus       ServiceRequestStatus?
+  toStatus         ServiceRequestStatus
+  note             String?
+  changedById      String
+  changedBy        User     @relation(fields: [changedById], references: [id])
+  createdAt        DateTime @default(now())
+}
+
+model Quote {
+  id               String   @id @default(cuid())
+  serviceRequestId String
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  title            String
+  description      String?
+  status           QuoteStatus @default(RASCUNHO)
+  totalCents       Int      @default(0)
+  items            QuoteItem[]
+  attachmentId     String?
+  attachment       Attachment? @relation(fields: [attachmentId], references: [id])
+  decidedAt        DateTime?
+  decisionNote     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model QuoteItem {
+  id          String @id @default(cuid())
+  quoteId     String
+  quote       Quote  @relation(fields: [quoteId], references: [id])
+  description String
+  quantity    Int    @default(1)
+  unitCents   Int
+  createdAt   DateTime @default(now())
+}
+
+model Attachment {
+  id               String   @id @default(cuid())
+  serviceRequestId String
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  uploadedById      String
+  uploadedBy        User     @relation(fields: [uploadedById], references: [id])
+  type              AttachmentType
+  fileName          String
+  mimeType          String
+  sizeBytes         Int
+  storageKey        String
+  url               String?
+  quotes            Quote[]
+  createdAt         DateTime @default(now())
+}
+
+model NotificationLog {
+  id               String   @id @default(cuid())
+  serviceRequestId String?
+  serviceRequest   ServiceRequest? @relation(fields: [serviceRequestId], references: [id])
+  channel          NotificationChannel
+  recipient        String
+  subject          String
+  body             String
+  provider         String
+  status           String   @default("MOCKED")
+  createdAt        DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
