@@ -39,7 +39,7 @@ export default function SetupMigratePage() {
         setResult({
           tone: 'error',
           title: 'Erro ao executar migrations',
-          message: 'Nao foi possivel conectar com a rota de migrations. Tente novamente em instantes.'
+          message: 'Nao foi possivel conectar com a rota de migrations. Tente novamente em instantes ou execute npm run prisma:deploy em um terminal confiavel com DATABASE_URL configurada.'
         });
       }
     });
@@ -107,10 +107,19 @@ function toSetupResult(status: number, payload: SetupResponse): SetupResult {
     };
   }
 
+  if (payload.message === 'Prisma CLI was not found in the server bundle.') {
+    return {
+      tone: 'error',
+      title: 'Prisma CLI nao encontrado na Vercel',
+      message: 'A funcao serverless nao encontrou o executavel do Prisma. Como alternativa segura, rode npm run prisma:deploy em um terminal confiavel com DATABASE_URL configurada.',
+      summary: payload.summary
+    };
+  }
+
   return {
     tone: 'error',
     title: 'Erro na migration',
-    message: payload.message ?? 'Nao foi possivel executar as migrations.',
+    message: payload.message ?? 'Nao foi possivel executar as migrations. Se o ambiente serverless bloquear o Prisma CLI, use npm run prisma:deploy em um terminal confiavel com DATABASE_URL configurada.',
     summary: payload.summary
   };
 }
