@@ -55,16 +55,17 @@ enum NotificationChannel {
 }
 
 model Company {
-  id        String   @id @default(cuid())
-  name      String
-  document  String?  @unique
-  email     String?
-  phone     String?
-  active    Boolean  @default(true)
-  users     User[]
-  requests  ServiceRequest[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  document    String?  @unique
+  email       String?
+  phone       String?
+  active      Boolean  @default(true)
+  users       User[]
+  invitations InvitationToken[]
+  requests    ServiceRequest[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model User {
@@ -77,8 +78,10 @@ model User {
   company         Company?        @relation(fields: [companyId], references: [id])
   active          Boolean         @default(true)
   invitationsSent InvitationToken[] @relation("InvitationCreator")
+  resetTokens     PasswordResetToken[]
   requests        ServiceRequest[] @relation("RequestRequester")
   statusChanges   ServiceRequestStatusHistory[]
+  attachments     Attachment[]
   auditLogs       AuditLog[]
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
