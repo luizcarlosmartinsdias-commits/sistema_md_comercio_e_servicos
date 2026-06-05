@@ -1,13 +1,15 @@
 'use client';
 
 import { signIn } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 
 const dashboardPath = '/dashboard';
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = normalizeInternalPath(searchParams.get('callbackUrl')) ?? dashboardPath;
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -26,7 +28,7 @@ export function LoginForm() {
         email,
         password,
         redirect: false,
-        callbackUrl: dashboardPath
+        callbackUrl
       });
 
       if (result?.error) {
@@ -35,7 +37,7 @@ export function LoginForm() {
       }
 
       if (result?.ok) {
-        router.push(normalizeInternalUrl(result.url) ?? dashboardPath);
+        router.push(normalizeInternalUrl(result.url) ?? callbackUrl);
         router.refresh();
         return;
       }
@@ -64,8 +66,14 @@ function normalizeInternalUrl(url?: string | null) {
   try {
     const parsed = new URL(url, window.location.origin);
     if (parsed.origin !== window.location.origin) return dashboardPath;
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return normalizeInternalPath(`${parsed.pathname}${parsed.search}${parsed.hash}`) ?? dashboardPath;
   } catch {
     return dashboardPath;
   }
+}
+
+function normalizeInternalPath(path?: string | null) {
+  if (!path?.startsWith('/') || path.startsWith('//')) return null;
+  if (path.startsWith('/login')) return dashboardPath;
+  return path;
 }
