@@ -7,6 +7,8 @@ import { requireSessionUser } from '@/lib/session';
 import { canManageMd } from '@/lib/rbac';
 import { StorageService } from '@/lib/services/storage';
 
+export const runtime = 'nodejs';
+
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   const user = await requireSessionUser();
   const attachment = await prisma.attachment.findUnique({ where: { id: params.id }, include: { serviceRequest: true } });
