@@ -1,7 +1,8 @@
 'use client';
 
 import { useFormState, useFormStatus } from 'react-dom';
-import { acceptInvitationAction, ActionState } from '@/lib/actions';
+import { acceptInvitationAction } from '@/lib/actions';
+import type { ActionState } from '@/lib/actions';
 
 const initialState: ActionState = { status: 'idle', message: '' };
 
