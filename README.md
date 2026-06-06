@@ -14,6 +14,15 @@ MVP do portal B2B da MD Comercio e Servicos para controle de assistencia tecnica
 - Tokens temporarios para convites e redefinicao de senha
 - Envio de e-mail transacional com Resend ou mock local
 
+## Perfis de usuario
+
+O produto usa dois perfis funcionais:
+
+- `ADMIN_MD`: administra empresas, clientes, convites, status operacionais e orcamentos.
+- `CLIENTE`: acessa apenas dados da propria empresa, abre solicitacoes, acompanha status, aprova/reprova orcamentos e solicita nota fiscal.
+
+Por compatibilidade com o banco PostgreSQL atual, o enum Prisma ainda mantem os valores antigos `CLIENTE_SOLICITANTE`, `CLIENTE_GESTOR` e `CLIENTE_FINANCEIRO`. Todos eles sao tratados pelo codigo como `CLIENTE`. Novos convites de cliente sao gravados internamente com o valor compativel `CLIENTE_SOLICITANTE`, mas a interface mostra apenas `Cliente`.
+
 ## Como instalar
 
 ```bash
@@ -84,6 +93,19 @@ O administrador envia convites pelo dashboard. A tela mostra feedback apos a sub
 A secao `Convites pendentes` lista nome, e-mail, perfil, empresa, expiracao, status e link copiavel enquanto o convite estiver pendente. Convites antigos criados antes desta versao podem aparecer como pendentes sem link copiavel, porque antes o sistema guardava apenas o hash do token.
 
 Ao acessar `/invite/[token]`, o sistema mostra mensagens amigaveis para convite invalido, expirado ou ja aceito. Depois de criar a senha com sucesso, o usuario volta para `/login` com a mensagem `Cadastro criado com sucesso. Faça login.`
+
+## Gestao de clientes
+
+O dashboard administrativo mostra `Clientes cadastrados` com nome, e-mail, empresa, status, data de cadastro e a indicacao de ultimo acesso quando existir. Como o sistema ainda nao registra ultimo acesso, esse campo aparece como `nao registrado`.
+
+Acoes disponiveis:
+
+- Editar cliente.
+- Inativar cliente.
+- Reativar cliente.
+- Excluir cliente quando nao houver historico.
+
+Quando o cliente possui solicitacoes, historico, anexos ou auditoria, a exclusao fisica e substituida por inativacao para preservar os registros. Cliente inativo nao consegue logar e nao recebe novo convite; para voltar a usar o portal, o administrador deve reativar o cadastro.
 
 ## Migrations e seed local
 
@@ -180,16 +202,16 @@ Acesse `http://localhost:3000`.
 
 ## Observacoes sobre mocks
 
-Na primeira versao, `NotificationService` registra e-mails, WhatsApp e notificacoes internas no banco e imprime detalhes no console quando os providers estao como `mock`. O `StorageService` usa armazenamento local em `STORAGE_LOCAL_PATH`, mantendo a interface pronta para bucket externo futuramente.
+Na primeira versao, `NotificationService` registra e-mails, WhatsApp e notificacoes internas no banco e imprime detalhes no console quando os providers estao como `mock`. O WhatsApp mock registra `NotificationLog` como `MOCKED` e imprime no log que o envio foi simulado. O `StorageService` usa armazenamento local em `STORAGE_LOCAL_PATH`, mantendo a interface pronta para bucket externo futuramente.
 
 ## Fluxo principal
 
 1. Administrador MD cadastra empresas.
-2. Administrador envia convites por e-mail.
-3. Usuario cria senha pelo link de convite.
+2. Administrador envia convites para clientes.
+3. Cliente cria senha pelo link de convite.
 4. Cliente abre solicitacao sem escolher empresa; a empresa vem da sessao.
 5. Administrador altera status e cria orcamento.
-6. Cliente gestor aprova ou recusa.
+6. Qualquer cliente ativo da empresa aprova ou reprova orcamento.
 7. Cliente envia O.S., solicita nota fiscal e baixa anexos.
 8. MD anexa O.S. assinada e nota fiscal.
 9. Historico de status, auditoria e notificacoes sao registrados.
