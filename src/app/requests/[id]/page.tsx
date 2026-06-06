@@ -22,6 +22,7 @@ export default async function RequestPage({ params }: { params: { id: string } }
   });
   if (!request) notFound();
   const latestQuote = request.quotes[0];
+  const canDecideQuote = Boolean(latestQuote && canApproveQuote(user.role) && latestQuote.status === 'ENVIADO' && request.currentStatus === ServiceRequestStatus.AGUARDANDO_APROVACAO);
   const attachmentOptions = mdUser
     ? [AttachmentType.FOTO_PROBLEMA, AttachmentType.OS_ASSINADA_MD, AttachmentType.NOTA_FISCAL, AttachmentType.OUTRO]
     : [AttachmentType.FOTO_PROBLEMA, AttachmentType.OS_CLIENTE, AttachmentType.OUTRO];
@@ -81,8 +82,13 @@ export default async function RequestPage({ params }: { params: { id: string } }
 
     {latestQuote ? <section className="card">
       <h2 className="font-semibold">Orcamento</h2>
-      <p className="mt-2 text-sm text-slate-600">{latestQuote.title} - {latestQuote.status} - {formatMoney(latestQuote.totalCents)}</p>
-      {canApproveQuote(user.role) && latestQuote.status === 'ENVIADO' ? <div className="mt-4 flex gap-3"><form action={approveQuoteAction}><input type="hidden" name="quoteId" value={latestQuote.id} /><button className="btn">Aprovar</button></form><form action={rejectQuoteAction}><input type="hidden" name="quoteId" value={latestQuote.id} /><input name="note" placeholder="Motivo da recusa" /><button className="btn-secondary">Recusar</button></form></div> : null}
+      <div className="mt-3 space-y-2 text-sm text-slate-700">
+        <p><strong>{latestQuote.title}</strong> - {latestQuote.status} - {formatMoney(latestQuote.totalCents)}</p>
+        {latestQuote.description ? <p>{latestQuote.description}</p> : null}
+        {latestQuote.items.length > 0 ? <ul className="list-disc pl-5">{latestQuote.items.map((item) => <li key={item.id}>{item.description} - {item.quantity} x {formatMoney(item.unitCents)}</li>)}</ul> : null}
+        {latestQuote.attachment ? <a className="font-semibold text-mdblue" href={`/api/attachments/${latestQuote.attachment.id}`}>Baixar anexo do orcamento</a> : null}
+      </div>
+      {canDecideQuote ? <div className="mt-4 grid gap-3 md:grid-cols-2"><form action={approveQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observacao opcional" /><button className="btn">Aprovar orçamento</button></form><form action={rejectQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observacao opcional" /><button className="btn-secondary">Reprovar orçamento</button></form></div> : null}
     </section> : null}
 
     <section className="card">
