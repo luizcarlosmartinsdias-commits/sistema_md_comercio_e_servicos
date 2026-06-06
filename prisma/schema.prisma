@@ -95,6 +95,7 @@ model InvitationToken {
   companyId    String?
   company      Company? @relation(fields: [companyId], references: [id])
   tokenHash    String   @unique
+  plainToken   String?
   expiresAt    DateTime
   acceptedAt   DateTime?
   createdById  String
