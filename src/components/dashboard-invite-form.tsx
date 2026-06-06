@@ -1,7 +1,8 @@
 'use client';
 
 import { useFormState, useFormStatus } from 'react-dom';
-import { inviteUserAction, ActionState } from '@/lib/actions';
+import { inviteUserAction } from '@/lib/actions';
+import type { ActionState } from '@/lib/actions';
 
 type CompanyOption = { id: string; name: string };
 type RoleOption = { value: string; label: string };
