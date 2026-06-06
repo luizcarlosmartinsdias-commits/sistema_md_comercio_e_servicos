@@ -3,6 +3,7 @@ import { UserRole } from '@prisma/client';
 import { DashboardInviteForm } from '@/components/dashboard-invite-form';
 import { CopyInviteLinkButton } from '@/components/copy-invite-link-button';
 import { ClientManagementForms } from '@/components/client-management-forms';
+import { ServiceCatalogForms } from '@/components/service-catalog-forms';
 import { requireSessionUser } from '@/lib/session';
 import { prisma } from '@/lib/prisma';
 import { createCompanyAction, createServiceRequestAction } from '@/lib/actions';
@@ -28,6 +29,7 @@ export default async function DashboardPage() {
   const companies = admin ? await prisma.company.findMany({ orderBy: { createdAt: 'desc' } }).catch(captureDataError('empresas')) : [];
   const clients = admin ? await prisma.user.findMany({ where: { role: clientRoleFilter() }, include: { company: true }, orderBy: { createdAt: 'desc' } }).catch(captureDataError('clientes')) : [];
   const invitations = admin ? await prisma.invitationToken.findMany({ include: { company: true }, orderBy: { createdAt: 'desc' } }).catch(captureDataError('convites')) : [];
+  const services = admin ? await prisma.serviceCatalog.findMany({ orderBy: [{ active: 'desc' }, { createdAt: 'desc' }] }).catch(captureDataError('servicos')) : [];
   const requests = await prisma.serviceRequest.findMany({
     where: admin ? {} : { companyId: user.companyId ?? '__sem_empresa__' },
     include: { company: true, requester: true, quotes: true },
@@ -35,10 +37,12 @@ export default async function DashboardPage() {
   }).catch(captureDataError('solicitacoes'));
 
   return <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
-    <div><h1 className="text-2xl font-bold">Painel {admin ? 'administrativo MD' : 'do cliente'}</h1><p className="text-sm text-slate-600">{admin ? 'Visao completa de empresas, clientes, convites e solicitacoes.' : `Empresa vinculada: ${user.company?.name ?? 'nao informada'}`}</p></div>
+    <div><h1 className="text-2xl font-bold">Painel {admin ? 'administrativo MD' : 'do cliente'}</h1><p className="text-sm text-slate-600">{admin ? 'Visao completa de empresas, clientes, convites, servicos e solicitacoes.' : `Empresa vinculada: ${user.company?.name ?? 'nao informada'}`}</p></div>
     {dataWarning ? <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="alert">{dataWarning}</p> : null}
 
     {admin ? <section className="grid gap-4 lg:grid-cols-2"><div className="card"><h2 className="font-semibold">Cadastrar empresa</h2><form action={createCompanyAction} className="mt-4 grid gap-3"><input name="name" placeholder="Nome da empresa" required /><input name="document" placeholder="CNPJ ou documento" /><input name="email" type="email" placeholder="E-mail" /><input name="phone" placeholder="Telefone" /><button className="btn">Salvar empresa</button></form></div><div className="card"><h2 className="font-semibold">Convidar usuario</h2><DashboardInviteForm companies={companies.map((company) => ({ id: company.id, name: company.name }))} roles={roleOptions} /></div></section> : null}
+
+    {admin ? <section className="card"><h2 className="font-semibold">Servicos cadastrados</h2><ServiceCatalogForms services={services.map((service) => ({ id: service.id, name: service.name, description: service.description, category: service.category, defaultUnitCents: service.defaultUnitCents, active: service.active, createdAt: service.createdAt.toLocaleString('pt-BR') }))} /></section> : null}
 
     {admin ? <section className="card"><h2 className="font-semibold">Empresas cadastradas</h2><div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b"><th className="py-2">Nome</th><th>Documento</th><th>E-mail</th><th>Telefone</th></tr></thead><tbody>{companies.map((company) => <tr key={company.id} className="border-b last:border-0"><td className="py-3 font-medium">{company.name}</td><td>{company.document ?? '-'}</td><td>{company.email ?? '-'}</td><td>{company.phone ?? '-'}</td></tr>)}</tbody></table>{companies.length === 0 ? <p className="py-6 text-sm text-slate-500">Nenhuma empresa cadastrada.</p> : null}</div></section> : null}
 

@@ -1,7 +1,8 @@
 import { NotificationChannel, PrismaClient } from '@prisma/client';
 import { Resend } from 'resend';
 
-type SendInput = { serviceRequestId?: string; recipient: string; subject: string; body: string };
+type EmailAttachment = { filename: string; content: string };
+type SendInput = { serviceRequestId?: string; recipient: string; subject: string; body: string; attachments?: EmailAttachment[] };
 
 type NotificationStatus = 'MOCKED' | 'SENT' | 'FAILED';
 
@@ -42,7 +43,8 @@ export class NotificationService {
         from,
         to: input.recipient,
         subject: input.subject,
-        text: input.body
+        text: input.body,
+        attachments: input.attachments
       });
     } catch (error) {
       await this.logResendFailure(input, error);
@@ -59,6 +61,7 @@ export class NotificationService {
       recipient: input.recipient,
       subject: input.subject,
       serviceRequestId: input.serviceRequestId,
+      attachments: input.attachments?.map((attachment) => attachment.filename),
       resendEmailId: response.data?.id
     });
 
@@ -71,6 +74,7 @@ export class NotificationService {
         recipient: input.recipient,
         subject: input.subject,
         serviceRequestId: input.serviceRequestId,
+        attachments: input.attachments?.map((attachment) => attachment.filename),
         error: error.message
       });
     } else {
