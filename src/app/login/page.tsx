@@ -1,8 +1,8 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { Suspense } from 'react';
+import { BrandLogo } from '@/components/brand-logo';
 import { LoginForm } from '@/components/login-form';
 import { authOptions } from '@/lib/auth';
 
@@ -15,9 +15,9 @@ export default async function LoginPage({ searchParams }: { searchParams?: { mes
   return (
     <main className="mx-auto grid min-h-[calc(100vh-69px)] max-w-6xl items-center gap-10 px-4 py-10 md:grid-cols-[1.1fr_0.9fr]">
       <section>
-        <Image src="/brand/logo-md-horizontal.svg" alt="MD Comercio e Servicos" width={520} height={124} priority />
-        <h1 className="mt-8 text-3xl font-bold text-mdgraphite">Assistencia tecnica B2B com rastreabilidade ponta a ponta.</h1>
-        <p className="mt-3 max-w-xl text-slate-600">Acesse solicitacoes, orcamentos, O.S., notas fiscais e historico de status da sua empresa.</p>
+        <BrandLogo className="h-auto w-full max-w-md" priority />
+        <h1 className="mt-8 text-3xl font-bold text-mdgraphite">Assistência técnica B2B com rastreabilidade ponta a ponta.</h1>
+        <p className="mt-3 max-w-xl text-slate-600">Acesse solicitações, orçamentos, ordens de serviço, notas fiscais e histórico de status da sua empresa.</p>
       </section>
       <section className="card">
         <h2 className="text-xl font-semibold">Entrar</h2>
