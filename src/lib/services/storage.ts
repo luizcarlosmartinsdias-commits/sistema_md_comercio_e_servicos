@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'fs/promises';
 
 export class StorageService {
   static provider = process.env.STORAGE_PROVIDER ?? 'local';
-  static basePath = process.env.STORAGE_LOCAL_PATH ?? './uploads';
+  static configuredBasePath = process.env.STORAGE_LOCAL_PATH ?? './uploads';
 
   static async save(file: File, folder: string) {
     const bytes = Buffer.from(await file.arrayBuffer());
@@ -21,13 +21,19 @@ export class StorageService {
     return { storageKey, fileName, mimeType, sizeBytes: buffer.length };
   }
 
-  static resolveLocalPath(storageKey: string) { return path.resolve(this.basePath, storageKey); }
+  static resolveLocalPath(storageKey: string) { return path.resolve(this.localBasePath(), storageKey); }
 
   private static async writeLocal(storageKey: string, bytes: Buffer) {
     if (this.provider !== 'local') throw new Error('Storage externo ainda nao configurado. Use STORAGE_PROVIDER=local no MVP.');
     const fullPath = this.resolveLocalPath(storageKey);
     await mkdir(path.dirname(fullPath), { recursive: true });
     await writeFile(fullPath, bytes);
+  }
+
+  private static localBasePath() {
+    if (process.env.VERCEL && !path.isAbsolute(this.configuredBasePath)) return '/tmp/uploads';
+    if (process.env.VERCEL && this.configuredBasePath.startsWith('/var/task')) return '/tmp/uploads';
+    return this.configuredBasePath;
   }
 
   private static cleanFileName(fileName: string) {
