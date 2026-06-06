@@ -16,11 +16,12 @@ export default async function RequestPage({ params }: { params: { id: string } }
       company: true,
       requester: true,
       statusHistory: { include: { changedBy: true }, orderBy: { createdAt: 'desc' } },
-      quotes: { include: { items: true, attachment: true }, orderBy: { createdAt: 'desc' } },
+      quotes: { include: { items: { include: { serviceCatalog: true } }, attachment: true, pdfAttachment: true }, orderBy: { createdAt: 'desc' } },
       attachments: { include: { uploadedBy: true }, orderBy: { createdAt: 'desc' } }
     }
   });
   if (!request) notFound();
+  const serviceCatalog = mdUser ? await prisma.serviceCatalog.findMany({ where: { active: true }, orderBy: [{ category: 'asc' }, { name: 'asc' }] }) : [];
   const latestQuote = request.quotes[0];
   const canDecideQuote = Boolean(latestQuote && canApproveQuote(user.role) && latestQuote.status === 'ENVIADO' && request.currentStatus === ServiceRequestStatus.AGUARDANDO_APROVACAO);
   const attachmentOptions = mdUser
@@ -55,15 +56,28 @@ export default async function RequestPage({ params }: { params: { id: string } }
           <input name="note" placeholder="Observacao do status" />
           <button className="btn">Alterar status</button>
         </form>
-        <form action={createQuoteAction} encType="multipart/form-data" className="mt-6 grid gap-3">
+
+        <form action={createQuoteAction} encType="multipart/form-data" className="mt-6 grid gap-4">
           <input type="hidden" name="requestId" value={request.id} />
-          <input name="title" placeholder="Titulo do orcamento" required />
-          <textarea name="description" placeholder="Descricao" />
-          <input name="itemDescription" placeholder="Item principal" required />
-          <input name="quantity" type="number" min="1" defaultValue="1" />
-          <input name="unitCents" type="number" min="0" placeholder="Valor unitario em centavos" required />
+          <div>
+            <h3 className="text-sm font-semibold">Criar orcamento</h3>
+            <p className="text-xs text-slate-500">Selecione os servicos cadastrados e ajuste quantidade ou valor apenas para este orcamento.</p>
+          </div>
+          {serviceCatalog.length > 0 ? <div className="overflow-x-auto rounded-md border border-slate-200">
+            <table className="w-full text-left text-sm">
+              <thead><tr className="border-b bg-slate-50"><th className="p-2">Usar</th><th>Servico</th><th>Categoria</th><th>Qtd.</th><th>Valor unitario</th></tr></thead>
+              <tbody>{serviceCatalog.map((service) => <tr key={service.id} className="border-b last:border-0 align-top"><td className="p-2"><input type="checkbox" name="serviceCatalogId" value={service.id} aria-label={`Selecionar ${service.name}`} /></td><td className="p-2"><strong>{service.name}</strong><br /><span className="text-xs text-slate-500">{service.description}</span></td><td className="p-2">{service.category ?? '-'}</td><td className="p-2"><input name={`quantity-${service.id}`} type="number" min="1" defaultValue="1" className="w-20" /></td><td className="p-2"><input name={`unitValue-${service.id}`} inputMode="decimal" defaultValue={(service.defaultUnitCents / 100).toFixed(2)} className="w-28" /></td></tr>)}</tbody>
+            </table>
+          </div> : <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">Cadastre servicos no dashboard antes de criar um orcamento padronizado.</p>}
+          <div className="grid gap-3 md:grid-cols-4">
+            <input name="discountValue" inputMode="decimal" placeholder="Desconto" />
+            <input name="validityDays" type="number" min="1" defaultValue="7" placeholder="Validade em dias" />
+            <input name="executionDeadlineDays" type="number" min="1" defaultValue="5" placeholder="Prazo em dias" />
+            <input name="warrantyDays" type="number" min="1" defaultValue="90" placeholder="Garantia em dias" />
+          </div>
+          <textarea name="notes" placeholder="Observacao do orcamento" />
           <input name="file" type="file" />
-          <button className="btn">Criar/enviar orcamento</button>
+          <button className="btn" disabled={serviceCatalog.length === 0}>Gerar PDF e enviar orcamento</button>
         </form>
       </div> : null}
 
@@ -82,11 +96,15 @@ export default async function RequestPage({ params }: { params: { id: string } }
 
     {latestQuote ? <section className="card">
       <h2 className="font-semibold">Orcamento</h2>
-      <div className="mt-3 space-y-2 text-sm text-slate-700">
-        <p><strong>{latestQuote.title}</strong> - {latestQuote.status} - {formatMoney(latestQuote.totalCents)}</p>
-        {latestQuote.description ? <p>{latestQuote.description}</p> : null}
-        {latestQuote.items.length > 0 ? <ul className="list-disc pl-5">{latestQuote.items.map((item) => <li key={item.id}>{item.description} - {item.quantity} x {formatMoney(item.unitCents)}</li>)}</ul> : null}
-        {latestQuote.attachment ? <a className="font-semibold text-mdblue" href={`/api/attachments/${latestQuote.attachment.id}`}>Baixar anexo do orcamento</a> : null}
+      <div className="mt-3 space-y-3 text-sm text-slate-700">
+        <div className="flex flex-wrap items-center justify-between gap-2"><p><strong>{latestQuote.quoteNumber ?? latestQuote.title}</strong> - {latestQuote.status}</p><p className="text-base font-bold text-mdblue">{formatMoney(latestQuote.totalCents)}</p></div>
+        {latestQuote.notes ?? latestQuote.description ? <p>{latestQuote.notes ?? latestQuote.description}</p> : null}
+        <div className="overflow-x-auto rounded-md border border-slate-200"><table className="w-full text-left text-sm"><thead><tr className="border-b bg-slate-50"><th className="p-2">Servico/peca</th><th>Qtd.</th><th>Valor unitario</th><th>Total</th></tr></thead><tbody>{latestQuote.items.map((item) => <tr key={item.id} className="border-b last:border-0"><td className="p-2">{item.description}</td><td>{item.quantity}</td><td>{formatMoney(item.unitCents)}</td><td>{formatMoney(item.quantity * item.unitCents)}</td></tr>)}</tbody></table></div>
+        <div className="grid gap-2 rounded-md bg-slate-50 p-3 md:grid-cols-4"><span>Subtotal: <strong>{formatMoney(latestQuote.subtotalCents || latestQuote.totalCents + latestQuote.discountCents)}</strong></span><span>Desconto: <strong>{formatMoney(latestQuote.discountCents)}</strong></span><span>Validade: <strong>{latestQuote.validityDays} dias</strong></span><span>Garantia: <strong>{latestQuote.warrantyDays} dias</strong></span></div>
+        <div className="flex flex-wrap gap-3">
+          {latestQuote.pdfAttachment ? <a className="font-semibold text-mdblue" href={`/api/attachments/${latestQuote.pdfAttachment.id}`}>Baixar PDF do orcamento</a> : null}
+          {latestQuote.attachment ? <a className="font-semibold text-mdblue" href={`/api/attachments/${latestQuote.attachment.id}`}>Baixar anexo de apoio</a> : null}
+        </div>
       </div>
       {canDecideQuote ? <div className="mt-4 grid gap-3 md:grid-cols-2"><form action={approveQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observacao opcional" /><button className="btn">Aprovar orçamento</button></form><form action={rejectQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observacao opcional" /><button className="btn-secondary">Reprovar orçamento</button></form></div> : null}
     </section> : null}
