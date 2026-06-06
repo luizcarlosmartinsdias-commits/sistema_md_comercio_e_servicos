@@ -6,7 +6,7 @@ import { AttachmentType, QuoteStatus, ServiceRequestStatus, UserRole } from '@pr
 import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/session';
 import { audit } from '@/lib/audit';
-import { canApproveQuote, canCreateRequest, canManageMd, canRequestInvoice } from '@/lib/rbac';
+import { canApproveQuote, canCreateRequest, canManageMd, canRequestInvoice, clientRoleFilter, clientRoleForPersistence, displayRole, isClient } from '@/lib/rbac';
 import { addHours, createPlainToken, hashToken } from '@/lib/tokens';
 import { hashPassword } from '@/lib/password';
 import { nextProtocol } from '@/lib/protocol';
@@ -37,13 +37,17 @@ export async function inviteUserAction(_previousState: ActionState, form: FormDa
 
     const name = text(form, 'name');
     const email = text(form, 'email').toLowerCase();
-    const role = text(form, 'role') as UserRole;
+    const requestedRole = text(form, 'role');
+    const role = requestedRole === 'ADMIN_MD' ? UserRole.ADMIN_MD : clientRoleForPersistence;
     const companyId = role === UserRole.ADMIN_MD ? null : text(form, 'companyId') || null;
 
     if (!name) return { status: 'error', message: 'Informe o nome do usuario.' };
     if (!email || !email.includes('@')) return { status: 'error', message: 'Informe um e-mail valido.' };
-    if (!isUserRole(role)) return { status: 'error', message: 'Perfil de usuario invalido.' };
-    if (role !== UserRole.ADMIN_MD && !companyId) return { status: 'error', message: 'Usuarios clientes precisam de empresa vinculada.' };
+    if (requestedRole !== 'CLIENTE' && requestedRole !== 'ADMIN_MD') return { status: 'error', message: 'Perfil de usuario invalido.' };
+    if (role !== UserRole.ADMIN_MD && !companyId) return { status: 'error', message: 'Cliente precisa estar vinculado a uma empresa.' };
+
+    const existingActiveUser = await prisma.user.findUnique({ where: { email } });
+    if (existingActiveUser?.active) return { status: 'error', message: 'Este usuario ja existe e esta ativo.' };
 
     const plainToken = createPlainToken();
     const invitation = await prisma.invitationToken.create({
@@ -59,7 +63,7 @@ export async function inviteUserAction(_previousState: ActionState, form: FormDa
       console.error('[invite] Convite criado, mas envio de e-mail falhou', { invitationId: invitation.id, email: invitation.email, error: errorMessage(error) });
     }
 
-    await audit(user.id, 'USER_INVITED', 'InvitationToken', invitation.id, { email: invitation.email, role, emailSent });
+    await audit(user.id, 'USER_INVITED', 'InvitationToken', invitation.id, { email: invitation.email, role: displayRole(role), emailSent });
     revalidatePath('/dashboard');
 
     if (!emailSent) return { status: 'warning', message: 'Convite criado, mas houve falha no envio do e-mail.' };
@@ -86,7 +90,7 @@ export async function acceptInvitationAction(_previousState: ActionState, form: 
     if (!invitation) return { status: 'error', message: 'Convite invalido. Solicite um novo convite ao administrador.' };
     if (invitation.acceptedAt) return { status: 'error', message: 'Este convite ja foi aceito. Acesse a tela de login.' };
     if (invitation.expiresAt < new Date()) return { status: 'error', message: 'Este convite expirou. Solicite um novo convite ao administrador.' };
-    if (invitation.role !== UserRole.ADMIN_MD && !invitation.companyId) return { status: 'error', message: 'Convite sem empresa vinculada. Solicite um novo convite ao administrador.' };
+    if (isClient(invitation.role) && !invitation.companyId) return { status: 'error', message: 'Convite sem empresa vinculada. Solicite um novo convite ao administrador.' };
 
     const passwordHash = await hashPassword(password);
     const user = await prisma.user.upsert({
@@ -102,6 +106,78 @@ export async function acceptInvitationAction(_previousState: ActionState, form: 
   }
 
   redirect('/login?message=cadastro-criado');
+}
+
+export async function updateClientAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const user = await requireSessionUser();
+    if (!canManageMd(user.role)) return { status: 'error', message: 'Acesso negado.' };
+    const clientId = text(form, 'clientId');
+    const name = text(form, 'name');
+    const email = text(form, 'email').toLowerCase();
+    const companyId = text(form, 'companyId');
+    if (!name || !email || !companyId) return { status: 'error', message: 'Informe nome, e-mail e empresa.' };
+    const client = await prisma.user.findUnique({ where: { id: clientId } });
+    if (!client || !isClient(client.role)) return { status: 'error', message: 'Cliente nao encontrado.' };
+    await prisma.user.update({ where: { id: clientId }, data: { name, email, companyId } });
+    await audit(user.id, 'CLIENT_UPDATED', 'User', clientId, { email });
+    revalidatePath('/dashboard');
+    return { status: 'success', message: 'Cliente atualizado com sucesso.' };
+  } catch (error) {
+    console.error('[client] Falha ao editar cliente', { error: errorMessage(error) });
+    return { status: 'error', message: 'Nao foi possivel editar o cliente.' };
+  }
+}
+
+export async function deactivateClientAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
+  return setClientActive(form, false, 'Cliente inativado com sucesso.', 'CLIENT_DEACTIVATED');
+}
+
+export async function reactivateClientAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
+  return setClientActive(form, true, 'Cliente reativado com sucesso.', 'CLIENT_REACTIVATED');
+}
+
+export async function deleteClientAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const admin = await requireSessionUser();
+    if (!canManageMd(admin.role)) return { status: 'error', message: 'Acesso negado.' };
+    const clientId = text(form, 'clientId');
+    const client = await prisma.user.findUnique({ where: { id: clientId } });
+    if (!client || !isClient(client.role)) return { status: 'error', message: 'Cliente nao encontrado.' };
+
+    const hasHistory = await clientHasHistory(clientId);
+    if (hasHistory) {
+      await prisma.user.update({ where: { id: clientId }, data: { active: false } });
+      await audit(admin.id, 'CLIENT_DEACTIVATED_PRESERVE_HISTORY', 'User', clientId);
+      revalidatePath('/dashboard');
+      return { status: 'warning', message: 'Este cliente possui historico e foi inativado para preservar os registros.' };
+    }
+
+    await prisma.user.delete({ where: { id: clientId } });
+    await audit(admin.id, 'CLIENT_DELETED', 'User', clientId);
+    revalidatePath('/dashboard');
+    return { status: 'success', message: 'Cliente excluido com sucesso.' };
+  } catch (error) {
+    console.error('[client] Falha ao excluir cliente', { error: errorMessage(error) });
+    return { status: 'error', message: 'Nao foi possivel excluir o cliente.' };
+  }
+}
+
+async function setClientActive(form: FormData, active: boolean, message: string, auditAction: string): Promise<ActionState> {
+  try {
+    const admin = await requireSessionUser();
+    if (!canManageMd(admin.role)) return { status: 'error', message: 'Acesso negado.' };
+    const clientId = text(form, 'clientId');
+    const client = await prisma.user.findUnique({ where: { id: clientId } });
+    if (!client || !isClient(client.role)) return { status: 'error', message: 'Cliente nao encontrado.' };
+    await prisma.user.update({ where: { id: clientId }, data: { active } });
+    await audit(admin.id, auditAction, 'User', clientId);
+    revalidatePath('/dashboard');
+    return { status: 'success', message };
+  } catch (error) {
+    console.error('[client] Falha ao alterar status do cliente', { error: errorMessage(error), active });
+    return { status: 'error', message: active ? 'Nao foi possivel reativar o cliente.' : 'Nao foi possivel inativar o cliente.' };
+  }
 }
 
 export async function requestPasswordResetAction(form: FormData) {
@@ -141,6 +217,7 @@ export async function updateStatusAction(form: FormData) {
   const status = text(form, 'status') as ServiceRequestStatus;
   const current = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
   await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: status, statusHistory: { create: { fromStatus: current.currentStatus, toStatus: status, changedById: user.id, note: text(form, 'note') || null } } } });
+  await notifyCompanyClients(requestId, 'Status da solicitacao atualizado', `${current.protocol} agora esta com status ${status}.`);
   await audit(user.id, 'STATUS_CHANGED', 'ServiceRequest', requestId, { from: current.currentStatus, to: status });
   revalidatePath(`/requests/${requestId}`);
 }
@@ -157,7 +234,7 @@ export async function createQuoteAction(form: FormData) {
   if (file instanceof File && file.size > 0) attachmentId = (await saveAttachment(requestId, user.id, file, AttachmentType.ORCAMENTO)).id;
   const quote = await prisma.quote.create({ data: { serviceRequestId: requestId, title: text(form, 'title'), description: text(form, 'description') || null, status: QuoteStatus.ENVIADO, totalCents: quantity * unitCents, attachmentId, items: { create: { description: text(form, 'itemDescription'), quantity, unitCents } } } });
   await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: 'Orcamento enviado ao cliente' } } } });
-  await notifyCompanyManagers(requestId, 'Orcamento aguardando aprovacao', `O orcamento ${quote.title} esta disponivel para aprovacao.`);
+  await notifyCompanyClients(requestId, 'Orcamento aguardando aprovacao', `O orcamento ${quote.title} esta disponivel para aprovacao.`);
   await audit(user.id, 'QUOTE_CREATED', 'Quote', quote.id);
   revalidatePath(`/requests/${requestId}`);
 }
@@ -167,13 +244,15 @@ export async function rejectQuoteAction(form: FormData) { await decideQuote(form
 
 async function decideQuote(form: FormData, approved: boolean) {
   const user = await requireSessionUser();
-  if (!canApproveQuote(user.role)) throw new Error('Apenas CLIENTE_GESTOR aprova orcamentos');
+  if (!canApproveQuote(user.role)) throw new Error('Acesso negado');
   const quote = await prisma.quote.findUniqueOrThrow({ where: { id: text(form, 'quoteId') }, include: { serviceRequest: true } });
   if (quote.serviceRequest.companyId !== user.companyId) throw new Error('Acesso negado');
   const status = approved ? ServiceRequestStatus.ORCAMENTO_APROVADO : ServiceRequestStatus.ORCAMENTO_RECUSADO;
-  await prisma.quote.update({ where: { id: quote.id }, data: { status: approved ? QuoteStatus.APROVADO : QuoteStatus.RECUSADO, decidedAt: new Date(), decisionNote: text(form, 'note') || null } });
-  await prisma.serviceRequest.update({ where: { id: quote.serviceRequestId }, data: { currentStatus: status, statusHistory: { create: { fromStatus: quote.serviceRequest.currentStatus, toStatus: status, changedById: user.id, note: approved ? 'Orcamento aprovado' : 'Orcamento recusado' } } } });
+  const note = text(form, 'note') || null;
+  await prisma.quote.update({ where: { id: quote.id }, data: { status: approved ? QuoteStatus.APROVADO : QuoteStatus.RECUSADO, decidedAt: new Date(), decisionNote: note } });
+  await prisma.serviceRequest.update({ where: { id: quote.serviceRequestId }, data: { currentStatus: status, statusHistory: { create: { fromStatus: quote.serviceRequest.currentStatus, toStatus: status, changedById: user.id, note: approved ? 'Orcamento aprovado' : note || 'Orcamento recusado' } } } });
   await notifications.notifyMd(approved ? 'Orcamento aprovado' : 'Orcamento recusado', `${quote.serviceRequest.protocol} teve decisao do cliente.`, quote.serviceRequestId);
+  await notifyCompanyClients(quote.serviceRequestId, approved ? 'Orcamento aprovado' : 'Orcamento recusado', `${quote.serviceRequest.protocol} teve decisao de orcamento registrada.`);
   await audit(user.id, approved ? 'QUOTE_APPROVED' : 'QUOTE_REJECTED', 'Quote', quote.id);
   revalidatePath(`/requests/${quote.serviceRequestId}`);
 }
@@ -218,14 +297,20 @@ function assertCanUploadAttachment(role: UserRole, type: AttachmentType) {
   if (!allowedClientTypes.includes(type)) throw new Error('Tipo de anexo restrito a MD');
 }
 
-async function notifyCompanyManagers(requestId: string, subject: string, body: string) {
+async function notifyCompanyClients(requestId: string, subject: string, body: string) {
   const request = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
-  const managers = await prisma.user.findMany({ where: { companyId: request.companyId, role: UserRole.CLIENTE_GESTOR, active: true } });
-  await Promise.all(managers.map((manager) => notifications.email({ serviceRequestId: requestId, recipient: manager.email, subject, body })));
+  const clients = await prisma.user.findMany({ where: { companyId: request.companyId, role: clientRoleFilter(), active: true } });
+  await Promise.all(clients.map((client) => notifications.email({ serviceRequestId: requestId, recipient: client.email, subject, body })));
 }
 
-function isUserRole(role: string): role is UserRole {
-  return Object.values(UserRole).includes(role as UserRole);
+async function clientHasHistory(clientId: string) {
+  const [requests, statusChanges, attachments, auditLogs] = await Promise.all([
+    prisma.serviceRequest.count({ where: { requesterId: clientId } }),
+    prisma.serviceRequestStatusHistory.count({ where: { changedById: clientId } }),
+    prisma.attachment.count({ where: { uploadedById: clientId } }),
+    prisma.auditLog.count({ where: { userId: clientId } })
+  ]);
+  return requests + statusChanges + attachments + auditLogs > 0;
 }
 
 function errorMessage(error: unknown) {
