@@ -146,7 +146,9 @@ Qualquer `CLIENTE` ativo da empresa vinculada a solicitacao pode visualizar o PD
 
 ### Armazenamento dos PDFs
 
-O MVP continua usando `StorageService` com `STORAGE_PROVIDER=local`. Em ambiente serverless como Vercel, armazenamento local pode ser temporario entre invocacoes. Para producao com necessidade de manter downloads de PDFs e anexos por longo prazo, configure um storage persistente antes de considerar o fluxo definitivo. O envio por e-mail usa o PDF gerado em memoria no momento da criacao do orcamento.
+O MVP continua usando `StorageService` com `STORAGE_PROVIDER=local`. Em ambiente serverless como Vercel, caminhos relativos como `./uploads` nao sao gravaveis de forma confiavel; por isso o sistema redireciona automaticamente o storage local para `/tmp/uploads` quando detecta `VERCEL=true`. Isso evita erro ao gerar e enviar o PDF, mas o arquivo pode ser removido em uma nova invocacao/cold start.
+
+Para producao com necessidade de manter downloads de PDFs e anexos por longo prazo, configure um storage persistente antes de considerar o fluxo definitivo. O envio por e-mail usa o PDF gerado em memoria no momento da criacao do orcamento.
 
 ## Migrations e seed local
 
