@@ -6,9 +6,11 @@ import { Suspense } from 'react';
 import { LoginForm } from '@/components/login-form';
 import { authOptions } from '@/lib/auth';
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams?: { message?: string } }) {
   const session = await getServerSession(authOptions);
   if (session?.user) redirect('/dashboard');
+
+  const message = searchParams?.message === 'cadastro-criado' ? 'Cadastro criado com sucesso. Faça login.' : null;
 
   return (
     <main className="mx-auto grid min-h-[calc(100vh-69px)] max-w-6xl items-center gap-10 px-4 py-10 md:grid-cols-[1.1fr_0.9fr]">
@@ -19,6 +21,7 @@ export default async function LoginPage() {
       </section>
       <section className="card">
         <h2 className="text-xl font-semibold">Entrar</h2>
+        {message ? <p className="mt-3 text-sm text-green-700" role="status">{message}</p> : null}
         <Suspense fallback={null}>
           <LoginForm />
         </Suspense>

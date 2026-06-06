@@ -73,6 +73,18 @@ Com `EMAIL_PROVIDER=resend`, cada tentativa cria um `NotificationLog`:
 
 Falhas tambem aparecem nos logs da Vercel com contexto seguro: destinatario, assunto, protocolo relacionado quando existir e mensagem do erro. A chave `RESEND_API_KEY`, senha e corpo do e-mail nao sao impressos nos logs.
 
+## Convites
+
+O administrador envia convites pelo dashboard. A tela mostra feedback apos a submissao:
+
+- `Convite enviado com sucesso para [email].`
+- `Convite criado, mas houve falha no envio do e-mail.`
+- `Nao foi possivel enviar o convite.`
+
+A secao `Convites pendentes` lista nome, e-mail, perfil, empresa, expiracao, status e link copiavel enquanto o convite estiver pendente. Convites antigos criados antes desta versao podem aparecer como pendentes sem link copiavel, porque antes o sistema guardava apenas o hash do token.
+
+Ao acessar `/invite/[token]`, o sistema mostra mensagens amigaveis para convite invalido, expirado ou ja aceito. Depois de criar a senha com sucesso, o usuario volta para `/login` com a mensagem `Cadastro criado com sucesso. Faça login.`
+
 ## Migrations e seed local
 
 ```bash
@@ -85,6 +97,8 @@ Para aplicar migrations em ambiente ja publicado:
 ```bash
 npm run prisma:deploy
 ```
+
+O comando `npm run build` executa `prisma migrate deploy` antes de `prisma generate` e `next build`. Na Vercel, isso aplica migrations pendentes no PostgreSQL configurado em `DATABASE_URL` antes do build da aplicacao.
 
 Usuario administrador inicial do seed local:
 
@@ -119,25 +133,9 @@ Para o dominio atual, use:
 
 Use uma senha forte em `ADMIN_PASSWORD` e um token longo/aleatorio em `ADMIN_SETUP_TOKEN`. As rotas temporarias nao retornam a senha, `DATABASE_URL` nem valores sensiveis.
 
-### 2. Executar migrations pelo navegador
+### 2. Executar migrations
 
-Depois do deploy, acesse:
-
-```text
-https://SEU-DOMINIO.vercel.app/setup-migrate
-```
-
-Informe `ADMIN_SETUP_TOKEN` e clique em `Executar migration`.
-
-Essa pagina chama `POST /api/setup/migrate`, que executa `prisma migrate deploy` no banco configurado em `DATABASE_URL`.
-
-Comportamento esperado:
-
-- Token correto: aplica migrations pendentes e cria as tabelas do Prisma.
-- Token incorreto: mostra erro de token invalido.
-- Erro de migration: mostra mensagem resumida sem expor `DATABASE_URL` ou segredos.
-
-Se o ambiente serverless da Vercel nao conseguir executar o Prisma CLI, use o fallback seguro em um terminal confiavel com as variaveis de producao configuradas:
+A partir desta versao, o build de producao executa `prisma migrate deploy` automaticamente. Se precisar aplicar manualmente, use um terminal confiavel com as variaveis de producao configuradas:
 
 ```bash
 npm install
