@@ -47,7 +47,7 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
     ['Contato', request.responsavel],
     ['Telefone', request.telefone],
     ['E-mail', request.requester.email],
-    ['Endereço', request.company.address ?? '-']
+    ['Endereço', '-']
   ]);
 
   sectionTitle('DADOS DO EQUIPAMENTO');
