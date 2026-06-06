@@ -113,6 +113,18 @@ model PasswordResetToken {
   createdAt DateTime @default(now())
 }
 
+model ServiceCatalog {
+  id               String      @id @default(cuid())
+  name             String
+  description      String
+  category         String?
+  defaultUnitCents Int
+  active           Boolean     @default(true)
+  quoteItems       QuoteItem[]
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}
+
 model ServiceRequest {
   id              String   @id @default(cuid())
   protocol        String   @unique
@@ -151,30 +163,41 @@ model ServiceRequestStatusHistory {
 }
 
 model Quote {
-  id               String   @id @default(cuid())
-  serviceRequestId String
-  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
-  title            String
-  description      String?
-  status           QuoteStatus @default(RASCUNHO)
-  totalCents       Int      @default(0)
-  items            QuoteItem[]
-  attachmentId     String?
-  attachment       Attachment? @relation(fields: [attachmentId], references: [id])
-  decidedAt        DateTime?
-  decisionNote     String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  serviceRequestId      String
+  serviceRequest        ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  quoteNumber           String?  @unique
+  title                 String
+  description           String?
+  status                QuoteStatus @default(RASCUNHO)
+  subtotalCents         Int      @default(0)
+  discountCents         Int      @default(0)
+  totalCents            Int      @default(0)
+  validityDays          Int      @default(7)
+  warrantyDays          Int      @default(90)
+  executionDeadlineDays Int      @default(5)
+  notes                 String?
+  items                 QuoteItem[]
+  attachmentId          String?
+  attachment            Attachment? @relation("QuoteSupportAttachment", fields: [attachmentId], references: [id])
+  pdfAttachmentId       String?
+  pdfAttachment         Attachment? @relation("QuotePdfAttachment", fields: [pdfAttachmentId], references: [id])
+  decidedAt             DateTime?
+  decisionNote          String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model QuoteItem {
-  id          String @id @default(cuid())
-  quoteId     String
-  quote       Quote  @relation(fields: [quoteId], references: [id])
-  description String
-  quantity    Int    @default(1)
-  unitCents   Int
-  createdAt   DateTime @default(now())
+  id               String @id @default(cuid())
+  quoteId          String
+  quote            Quote  @relation(fields: [quoteId], references: [id])
+  serviceCatalogId String?
+  serviceCatalog   ServiceCatalog? @relation(fields: [serviceCatalogId], references: [id])
+  description      String
+  quantity         Int    @default(1)
+  unitCents        Int
+  createdAt        DateTime @default(now())
 }
 
 model Attachment {
@@ -189,7 +212,8 @@ model Attachment {
   sizeBytes         Int
   storageKey        String
   url               String?
-  quotes            Quote[]
+  quotes            Quote[]  @relation("QuoteSupportAttachment")
+  pdfQuotes         Quote[]  @relation("QuotePdfAttachment")
   createdAt         DateTime @default(now())
 }
 
