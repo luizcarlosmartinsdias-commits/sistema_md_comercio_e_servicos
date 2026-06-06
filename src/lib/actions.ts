@@ -18,6 +18,16 @@ import { StorageService } from '@/lib/services/storage';
 export type ActionStatus = 'idle' | 'success' | 'warning' | 'error';
 export type ActionState = { status: ActionStatus; message: string };
 
+type QuoteEmailRequest = {
+  id: string;
+  protocol: string;
+  companyId: string;
+  tipoAparelho: string;
+  marca: string;
+  modelo: string;
+  company: { name: string };
+};
+
 const notifications = new NotificationService(prisma);
 const appUrl = () => (process.env.APP_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
@@ -53,9 +63,7 @@ export async function inviteUserAction(_previousState: ActionState, form: FormDa
     if (existingUser && !existingUser.active) return { status: 'error', message: 'Este cliente esta inativo. Reative o cadastro em vez de enviar novo convite.' };
 
     const plainToken = createPlainToken();
-    const invitation = await prisma.invitationToken.create({
-      data: { email, name, role, companyId, plainToken, tokenHash: hashToken(plainToken), expiresAt: addHours(72), createdById: user.id }
-    });
+    const invitation = await prisma.invitationToken.create({ data: { email, name, role, companyId, plainToken, tokenHash: hashToken(plainToken), expiresAt: addHours(72), createdById: user.id } });
     const link = `${appUrl()}/invite/${plainToken}`;
 
     let emailSent = true;
@@ -96,11 +104,7 @@ export async function acceptInvitationAction(_previousState: ActionState, form: 
     if (isClient(invitation.role) && !invitation.companyId) return { status: 'error', message: 'Convite sem empresa vinculada. Solicite um novo convite ao administrador.' };
 
     const passwordHash = await hashPassword(password);
-    const user = await prisma.user.upsert({
-      where: { email: invitation.email },
-      update: { name: invitation.name, role: invitation.role, companyId: invitation.companyId, passwordHash, active: true },
-      create: { name: invitation.name, email: invitation.email, role: invitation.role, companyId: invitation.companyId, passwordHash }
-    });
+    const user = await prisma.user.upsert({ where: { email: invitation.email }, update: { name: invitation.name, role: invitation.role, companyId: invitation.companyId, passwordHash, active: true }, create: { name: invitation.name, email: invitation.email, role: invitation.role, companyId: invitation.companyId, passwordHash } });
     await prisma.invitationToken.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } });
     await audit(user.id, 'INVITATION_ACCEPTED', 'User', user.id, { invitationId: invitation.id });
   } catch (error) {
@@ -149,13 +153,8 @@ export async function updateServiceCatalogAction(_previousState: ActionState, fo
   }
 }
 
-export async function deactivateServiceCatalogAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
-  return setServiceCatalogActive(form, false, 'Servico inativado com sucesso.', 'SERVICE_CATALOG_DEACTIVATED');
-}
-
-export async function reactivateServiceCatalogAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
-  return setServiceCatalogActive(form, true, 'Servico reativado com sucesso.', 'SERVICE_CATALOG_REACTIVATED');
-}
+export async function deactivateServiceCatalogAction(_previousState: ActionState, form: FormData): Promise<ActionState> { return setServiceCatalogActive(form, false, 'Servico inativado com sucesso.', 'SERVICE_CATALOG_DEACTIVATED'); }
+export async function reactivateServiceCatalogAction(_previousState: ActionState, form: FormData): Promise<ActionState> { return setServiceCatalogActive(form, true, 'Servico reativado com sucesso.', 'SERVICE_CATALOG_REACTIVATED'); }
 
 export async function deleteServiceCatalogAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
   try {
@@ -215,13 +214,8 @@ export async function updateClientAction(_previousState: ActionState, form: Form
   }
 }
 
-export async function deactivateClientAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
-  return setClientActive(form, false, 'Cliente inativado com sucesso.', 'CLIENT_DEACTIVATED');
-}
-
-export async function reactivateClientAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
-  return setClientActive(form, true, 'Cliente reativado com sucesso.', 'CLIENT_REACTIVATED');
-}
+export async function deactivateClientAction(_previousState: ActionState, form: FormData): Promise<ActionState> { return setClientActive(form, false, 'Cliente inativado com sucesso.', 'CLIENT_DEACTIVATED'); }
+export async function reactivateClientAction(_previousState: ActionState, form: FormData): Promise<ActionState> { return setClientActive(form, true, 'Cliente reativado com sucesso.', 'CLIENT_REACTIVATED'); }
 
 export async function deleteClientAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
   try {
@@ -230,7 +224,6 @@ export async function deleteClientAction(_previousState: ActionState, form: Form
     const clientId = text(form, 'clientId');
     const client = await prisma.user.findUnique({ where: { id: clientId } });
     if (!client || !isClient(client.role)) return { status: 'error', message: 'Cliente nao encontrado.' };
-
     const hasHistory = await clientHasHistory(clientId);
     if (hasHistory) {
       await prisma.user.update({ where: { id: clientId }, data: { active: false } });
@@ -238,7 +231,6 @@ export async function deleteClientAction(_previousState: ActionState, form: Form
       revalidatePath('/dashboard');
       return { status: 'warning', message: 'Este cliente possui historico e foi inativado para preservar os registros.' };
     }
-
     await prisma.user.delete({ where: { id: clientId } });
     await audit(admin.id, 'CLIENT_DELETED', 'User', clientId);
     revalidatePath('/dashboard');
@@ -315,7 +307,6 @@ export async function createQuoteAction(form: FormData) {
   const current = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId }, include: { company: true, requester: true } });
   const selectedIds = form.getAll('serviceCatalogId').map((value) => String(value)).filter(Boolean);
   if (selectedIds.length === 0) throw new Error('Selecione pelo menos um servico para criar o orcamento.');
-
   const services = await prisma.serviceCatalog.findMany({ where: { id: { in: selectedIds }, active: true } });
   const serviceById = new Map(services.map((service) => [service.id, service]));
   const items = selectedIds.map((serviceId) => {
@@ -324,10 +315,8 @@ export async function createQuoteAction(form: FormData) {
     const quantity = Math.max(1, Number(text(form, `quantity-${serviceId}`) || '1'));
     const unitCents = moneyToCents(text(form, `unitValue-${serviceId}`)) || service.defaultUnitCents;
     return { service, quantity, unitCents };
-  }).filter((item): item is NonNullable<typeof item> => Boolean(item));
-
+  }).filter((item): item is { service: NonNullable<ReturnType<typeof serviceById.get>>; quantity: number; unitCents: number } => Boolean(item));
   if (items.length === 0) throw new Error('Nenhum servico ativo foi encontrado para o orcamento.');
-
   const subtotalCents = items.reduce((sum, item) => sum + item.quantity * item.unitCents, 0);
   const discountCents = Math.min(subtotalCents, Math.max(0, moneyToCents(text(form, 'discountValue'))));
   const totalCents = subtotalCents - discountCents;
@@ -338,59 +327,15 @@ export async function createQuoteAction(form: FormData) {
   let supportAttachmentId: string | undefined;
   const file = form.get('file');
   if (file instanceof File && file.size > 0) supportAttachmentId = (await saveAttachment(requestId, user.id, file, AttachmentType.OUTRO)).id;
-
-  const quote = await prisma.quote.create({
-    data: {
-      serviceRequestId: requestId,
-      quoteNumber: nextQuoteNumber(current.protocol),
-      title: `Orcamento ${current.protocol}`,
-      description: notes || null,
-      status: QuoteStatus.ENVIADO,
-      subtotalCents,
-      discountCents,
-      totalCents,
-      validityDays,
-      warrantyDays,
-      executionDeadlineDays,
-      notes: notes || null,
-      attachmentId: supportAttachmentId,
-      items: {
-        create: items.map(({ service, quantity, unitCents }) => ({
-          serviceCatalogId: service.id,
-          description: `${service.name}: ${service.description}`,
-          quantity,
-          unitCents
-        }))
-      }
-    },
-    include: { items: true }
-  });
-
+  const quote = await prisma.quote.create({ data: { serviceRequestId: requestId, quoteNumber: nextQuoteNumber(current.protocol), title: `Orcamento ${current.protocol}`, description: notes || null, status: QuoteStatus.ENVIADO, subtotalCents, discountCents, totalCents, validityDays, warrantyDays, executionDeadlineDays, notes: notes || null, attachmentId: supportAttachmentId, items: { create: items.map(({ service, quantity, unitCents }) => ({ serviceCatalogId: service.id, description: `${service.name}: ${service.description}`, quantity, unitCents })) } }, include: { items: true } });
   const pdfBytes = await generateQuotePdf({ quote, request: current, portalUrl: `${appUrl()}/requests/${requestId}` });
   const pdfFileName = `${quote.quoteNumber ?? quote.id}.pdf`;
   const storedPdf = await StorageService.saveBytes(pdfBytes, requestId, pdfFileName, 'application/pdf');
   const pdfAttachment = await prisma.attachment.create({ data: { serviceRequestId: requestId, uploadedById: user.id, type: AttachmentType.ORCAMENTO, ...storedPdf } });
   await prisma.quote.update({ where: { id: quote.id }, data: { pdfAttachmentId: pdfAttachment.id } });
-
-  await prisma.serviceRequest.update({
-    where: { id: requestId },
-    data: {
-      currentStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO,
-      statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: `Orcamento criado: ${quote.quoteNumber}` } }
-    }
-  });
-
+  await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: `Orcamento criado: ${quote.quoteNumber}` } } } });
   const emailResult = await sendQuoteEmailToCompanyClients(current, quote, pdfFileName, pdfBytes);
-  await prisma.serviceRequestStatusHistory.create({
-    data: {
-      serviceRequestId: requestId,
-      fromStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO,
-      toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO,
-      changedById: user.id,
-      note: quoteEmailHistoryNote(emailResult)
-    }
-  });
-
+  await prisma.serviceRequestStatusHistory.create({ data: { serviceRequestId: requestId, fromStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: quoteEmailHistoryNote(emailResult) } });
   await audit(user.id, 'QUOTE_CREATED', 'Quote', quote.id, { quoteNumber: quote.quoteNumber, subtotalCents, discountCents, totalCents, emailResult });
   revalidatePath(`/requests/${requestId}`);
 }
@@ -454,50 +399,27 @@ function assertCanUploadAttachment(role: UserRole, type: AttachmentType) {
 }
 
 async function safeNotifyMd(subject: string, body: string, serviceRequestId?: string) {
-  try {
-    await notifications.notifyMd(subject, body, serviceRequestId);
-  } catch (error) {
-    console.error('[notification] Falha ao notificar MD', { serviceRequestId, subject, error: errorMessage(error) });
-  }
+  try { await notifications.notifyMd(subject, body, serviceRequestId); } catch (error) { console.error('[notification] Falha ao notificar MD', { serviceRequestId, subject, error: errorMessage(error) }); }
 }
 
 async function notifyCompanyClients(requestId: string, subject: string, body: string) {
   const request = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
   const clients = await prisma.user.findMany({ where: { companyId: request.companyId, role: clientRoleFilter(), active: true } });
   await Promise.all(clients.map(async (client) => {
-    try {
-      await notifications.email({ serviceRequestId: requestId, recipient: client.email, subject, body });
-    } catch (error) {
-      console.error('[notification] Falha ao notificar cliente', { serviceRequestId: requestId, clientId: client.id, subject, error: errorMessage(error) });
-    }
+    try { await notifications.email({ serviceRequestId: requestId, recipient: client.email, subject, body }); } catch (error) { console.error('[notification] Falha ao notificar cliente', { serviceRequestId: requestId, clientId: client.id, subject, error: errorMessage(error) }); }
   }));
 }
 
-async function sendQuoteEmailToCompanyClients(request: Awaited<ReturnType<typeof prisma.serviceRequest.findUniqueOrThrow>>, quote: { id: string; quoteNumber: string | null; totalCents: number }, pdfFileName: string, pdfBytes: Uint8Array) {
+async function sendQuoteEmailToCompanyClients(request: QuoteEmailRequest, quote: { id: string; quoteNumber: string | null; totalCents: number }, pdfFileName: string, pdfBytes: Uint8Array) {
   const clients = await prisma.user.findMany({ where: { companyId: request.companyId, role: clientRoleFilter(), active: true } });
   const subject = `Orcamento disponivel para aprovacao - ${request.protocol}`;
-  const body = [
-    `Protocolo: ${request.protocol}`,
-    `Empresa: ${request.company.name}`,
-    `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`,
-    `Valor total: ${formatMoney(quote.totalCents)}`,
-    `Acesse o portal para aprovar ou reprovar: ${appUrl()}/requests/${request.id}`,
-    'O PDF padronizado do orcamento esta anexado a este e-mail.'
-  ].join('\n');
+  const body = [`Protocolo: ${request.protocol}`, `Empresa: ${request.company.name}`, `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`, `Valor total: ${formatMoney(quote.totalCents)}`, `Acesse o portal para aprovar ou reprovar: ${appUrl()}/requests/${request.id}`, 'O PDF padronizado do orcamento esta anexado a este e-mail.'].join('\n');
   const attachment = { filename: pdfFileName, content: Buffer.from(pdfBytes).toString('base64') };
   let sent = 0;
   let failed = 0;
-
   for (const client of clients) {
-    try {
-      await notifications.email({ serviceRequestId: request.id, recipient: client.email, subject, body, attachments: [attachment] });
-      sent += 1;
-    } catch (error) {
-      failed += 1;
-      console.error('[quote] Falha ao enviar orcamento por e-mail', { serviceRequestId: request.id, quoteId: quote.id, clientId: client.id, error: errorMessage(error) });
-    }
+    try { await notifications.email({ serviceRequestId: request.id, recipient: client.email, subject, body, attachments: [attachment] }); sent += 1; } catch (error) { failed += 1; console.error('[quote] Falha ao enviar orcamento por e-mail', { serviceRequestId: request.id, quoteId: quote.id, clientId: client.id, error: errorMessage(error) }); }
   }
-
   return { sent, failed, totalClients: clients.length };
 }
 
@@ -509,12 +431,7 @@ function quoteEmailHistoryNote(result: { sent: number; failed: number; totalClie
 }
 
 async function clientHasHistory(clientId: string) {
-  const [requests, statusChanges, attachments, auditLogs] = await Promise.all([
-    prisma.serviceRequest.count({ where: { requesterId: clientId } }),
-    prisma.serviceRequestStatusHistory.count({ where: { changedById: clientId } }),
-    prisma.attachment.count({ where: { uploadedById: clientId } }),
-    prisma.auditLog.count({ where: { userId: clientId } })
-  ]);
+  const [requests, statusChanges, attachments, auditLogs] = await Promise.all([prisma.serviceRequest.count({ where: { requesterId: clientId } }), prisma.serviceRequestStatusHistory.count({ where: { changedById: clientId } }), prisma.attachment.count({ where: { uploadedById: clientId } }), prisma.auditLog.count({ where: { userId: clientId } })]);
   return requests + statusChanges + attachments + auditLogs > 0;
 }
 
@@ -536,10 +453,5 @@ function nextQuoteNumber(protocol: string) {
   return `ORC-${protocol}-${stamp}`;
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Erro desconhecido';
-}
-
-function tokenFingerprint(token: string) {
-  return hashToken(token).slice(0, 12);
-}
+function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Erro desconhecido'; }
+function tokenFingerprint(token: string) { return hashToken(token).slice(0, 12); }
