@@ -22,17 +22,17 @@ export function ServiceCatalogForms({ services }: { services: ServiceItem[] }) {
   return (
     <div className="mt-4 space-y-5">
       <form action={createAction} className="grid gap-3 md:grid-cols-[1fr_1fr_140px_auto]">
-        <input name="name" placeholder="Nome do servico" required />
+        <input name="name" placeholder="Nome do serviço" required />
         <input name="category" placeholder="Categoria" />
-        <input name="defaultUnitValue" inputMode="decimal" placeholder="Valor padrao" required />
+        <input name="defaultUnitValue" inputMode="decimal" placeholder="Valor padrão" required />
         <SubmitButton label="Cadastrar" pendingLabel="Salvando..." />
-        <textarea name="description" placeholder="Descricao" required className="md:col-span-4" />
+        <textarea name="description" placeholder="Descrição" required className="md:col-span-4" />
         {createState.message ? <p className={`text-sm md:col-span-4 ${messageClass(createState.status)}`} role="status">{createState.message}</p> : null}
       </form>
 
       <div className="space-y-3">
         {services.map((service) => <ServiceRow key={service.id} service={service} />)}
-        {services.length === 0 ? <p className="py-4 text-sm text-slate-500">Nenhum servico cadastrado.</p> : null}
+        {services.length === 0 ? <p className="py-4 text-sm text-slate-500">Nenhum serviço cadastrado.</p> : null}
       </div>
     </div>
   );
@@ -50,11 +50,11 @@ function ServiceRow({ service }: { service: ServiceItem }) {
       {state.message ? <p className={`mb-2 text-xs ${messageClass(state.status)}`} role="status">{state.message}</p> : null}
       <form action={editAction} className="grid gap-2 md:grid-cols-[1fr_1fr_130px_auto]">
         <input type="hidden" name="serviceId" value={service.id} />
-        <input name="name" defaultValue={service.name} aria-label="Nome do servico" required />
+        <input name="name" defaultValue={service.name} aria-label="Nome do serviço" required />
         <input name="category" defaultValue={service.category ?? ''} aria-label="Categoria" />
-        <input name="defaultUnitValue" defaultValue={(service.defaultUnitCents / 100).toFixed(2)} inputMode="decimal" aria-label="Valor padrao" required />
+        <input name="defaultUnitValue" defaultValue={(service.defaultUnitCents / 100).toFixed(2)} inputMode="decimal" aria-label="Valor padrão" required />
         <SubmitButton label="Editar" pendingLabel="Salvando..." />
-        <textarea name="description" defaultValue={service.description} aria-label="Descricao" required className="md:col-span-4" />
+        <textarea name="description" defaultValue={service.description} aria-label="Descrição" required className="md:col-span-4" />
       </form>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
         <span>Status: {service.active ? 'ativo' : 'inativo'} | Criado em {service.createdAt}</span>
