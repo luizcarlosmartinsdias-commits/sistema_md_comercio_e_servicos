@@ -81,7 +81,10 @@ export class NotificationService {
   }
 
   private async log(channel: NotificationChannel, provider: string, input: SendInput, status: NotificationStatus) {
-    if (provider === 'mock') console.info(`[mock:${channel}]`, input.subject, input.recipient);
+    if (provider === 'mock') {
+      const label = channel === NotificationChannel.WHATSAPP ? 'simulado' : 'mock';
+      console.info(`[${label}:${channel}]`, input.subject, input.recipient);
+    }
     return this.prisma.notificationLog.create({ data: { channel, provider, recipient: input.recipient, subject: input.subject, body: input.body, serviceRequestId: input.serviceRequestId, status } });
   }
 }
