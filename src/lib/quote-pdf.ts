@@ -193,10 +193,14 @@ function formatDate(date: Date) {
 
 function safe(value: string) {
   return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .replace(/[–—]/g, '-')
-    .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, '');
+    .replace(/º/g, 'o')
+    .replace(/ª/g, 'a')
+    .replace(/[^\x20-\x7E]/g, '');
 }
 
 function trim(value: string, length: number) {
