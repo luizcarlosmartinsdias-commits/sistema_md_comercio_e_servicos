@@ -13,12 +13,13 @@ MVP do portal B2B da MD Comercio e Servicos para controle de assistencia tecnica
 - Hash de senha com bcrypt
 - Tokens temporarios para convites e redefinicao de senha
 - Envio de e-mail transacional com Resend ou mock local
+- Geracao de PDF padronizado de orcamento com pdf-lib
 
 ## Perfis de usuario
 
 O produto usa dois perfis funcionais:
 
-- `ADMIN_MD`: administra empresas, clientes, convites, status operacionais e orcamentos.
+- `ADMIN_MD`: administra empresas, clientes, convites, status operacionais, catalogo de servicos e orcamentos.
 - `CLIENTE`: acessa apenas dados da propria empresa, abre solicitacoes, acompanha status, aprova/reprova orcamentos e solicita nota fiscal.
 
 Por compatibilidade com o banco PostgreSQL atual, o enum Prisma ainda mantem os valores antigos `CLIENTE_SOLICITANTE`, `CLIENTE_GESTOR` e `CLIENTE_FINANCEIRO`. Todos eles sao tratados pelo codigo como `CLIENTE`. Novos convites de cliente sao gravados internamente com o valor compativel `CLIENTE_SOLICITANTE`, mas a interface mostra apenas `Cliente`.
@@ -106,6 +107,46 @@ Acoes disponiveis:
 - Excluir cliente quando nao houver historico.
 
 Quando o cliente possui solicitacoes, historico, anexos ou auditoria, a exclusao fisica e substituida por inativacao para preservar os registros. Cliente inativo nao consegue logar e nao recebe novo convite; para voltar a usar o portal, o administrador deve reativar o cadastro.
+
+## Servicos e orcamentos padronizados
+
+O dashboard administrativo possui a secao `Servicos cadastrados`. Cada servico tem nome, descricao, categoria, valor padrao, status ativo/inativo, data de criacao e acoes para editar, inativar, reativar ou excluir quando ainda nao houver historico. Se o servico ja tiver sido usado em orcamento, a exclusao fisica e substituida por inativacao para preservar registros antigos.
+
+O seed local cria servicos iniciais de referencia:
+
+- Diagnostico tecnico
+- Troca de componente
+- Reparo de placa
+- Troca de conector
+- Instalacao eletrica
+- Manutencao preventiva
+- Configuracao de equipamento
+- Mao de obra tecnica
+
+Na tela da solicitacao, apenas `ADMIN_MD` pode criar orcamento. O administrador seleciona um ou mais servicos ativos, ajusta quantidade e valor unitario para aquele orcamento, informa desconto, validade, prazo de execucao, garantia, observacao e opcionalmente um anexo de apoio.
+
+Ao criar o orcamento, o sistema:
+
+- calcula subtotal, desconto e total;
+- gera um PDF padronizado com identidade MD, dados da empresa MD, cliente, aparelho, problema, itens, valores e condicoes;
+- salva o PDF como anexo `ORCAMENTO` vinculado a solicitacao e ao orcamento;
+- envia o PDF por e-mail para todos os clientes ativos da empresa;
+- registra `NotificationLog` com canal `EMAIL`, provider configurado e status `SENT`, `FAILED` ou `MOCKED`;
+- registra no historico da solicitacao quando o orcamento foi criado e se o envio por e-mail passou ou falhou.
+
+O assunto do e-mail e:
+
+```text
+Orcamento disponivel para aprovacao - [PROTOCOLO]
+```
+
+O corpo do e-mail contem protocolo, empresa, aparelho, valor total, link do portal para aprovacao/reprovacao e informacao de que o PDF esta anexado.
+
+Qualquer `CLIENTE` ativo da empresa vinculada a solicitacao pode visualizar o PDF, ver os itens do orcamento, aprovar ou reprovar com observacao opcional. Clientes de outras empresas nao conseguem acessar a solicitacao nem os anexos.
+
+### Armazenamento dos PDFs
+
+O MVP continua usando `StorageService` com `STORAGE_PROVIDER=local`. Em ambiente serverless como Vercel, armazenamento local pode ser temporario entre invocacoes. Para producao com necessidade de manter downloads de PDFs e anexos por longo prazo, configure um storage persistente antes de considerar o fluxo definitivo. O envio por e-mail usa o PDF gerado em memoria no momento da criacao do orcamento.
 
 ## Migrations e seed local
 
@@ -207,11 +248,13 @@ Na primeira versao, `NotificationService` registra e-mails, WhatsApp e notificac
 ## Fluxo principal
 
 1. Administrador MD cadastra empresas.
-2. Administrador envia convites para clientes.
-3. Cliente cria senha pelo link de convite.
-4. Cliente abre solicitacao sem escolher empresa; a empresa vem da sessao.
-5. Administrador altera status e cria orcamento.
-6. Qualquer cliente ativo da empresa aprova ou reprova orcamento.
-7. Cliente envia O.S., solicita nota fiscal e baixa anexos.
-8. MD anexa O.S. assinada e nota fiscal.
-9. Historico de status, auditoria e notificacoes sao registrados.
+2. Administrador cadastra ou revisa servicos padronizados.
+3. Administrador envia convites para clientes.
+4. Cliente cria senha pelo link de convite.
+5. Cliente abre solicitacao sem escolher empresa; a empresa vem da sessao.
+6. Administrador altera status e cria orcamento a partir dos servicos cadastrados.
+7. Sistema gera PDF, envia e-mail com anexo e registra historico/notificacoes.
+8. Qualquer cliente ativo da empresa aprova ou reprova orcamento.
+9. Cliente envia O.S., solicita nota fiscal e baixa anexos.
+10. MD anexa O.S. assinada e nota fiscal.
+11. Historico de status, auditoria e notificacoes sao registrados.
