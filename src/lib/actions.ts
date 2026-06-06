@@ -13,8 +13,11 @@ import { nextProtocol } from '@/lib/protocol';
 import { NotificationService } from '@/lib/services/notification';
 import { StorageService } from '@/lib/services/storage';
 
+export type ActionStatus = 'idle' | 'success' | 'warning' | 'error';
+export type ActionState = { status: ActionStatus; message: string };
+
 const notifications = new NotificationService(prisma);
-const appUrl = () => process.env.APP_URL ?? 'http://localhost:3000';
+const appUrl = () => (process.env.APP_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 
 export async function signOutAction() { redirect('/api/auth/signout?callbackUrl=/login'); }
@@ -27,29 +30,78 @@ export async function createCompanyAction(form: FormData) {
   revalidatePath('/dashboard');
 }
 
-export async function inviteUserAction(form: FormData) {
-  const user = await requireSessionUser();
-  if (!canManageMd(user.role)) throw new Error('Acesso negado');
-  const role = text(form, 'role') as UserRole;
-  const companyId = role === UserRole.ADMIN_MD ? null : text(form, 'companyId') || null;
-  if (role !== UserRole.ADMIN_MD && !companyId) throw new Error('Usuarios clientes precisam de empresa vinculada');
-  const plainToken = createPlainToken();
-  const invitation = await prisma.invitationToken.create({ data: { email: text(form, 'email').toLowerCase(), name: text(form, 'name'), role, companyId, tokenHash: hashToken(plainToken), expiresAt: addHours(72), createdById: user.id } });
-  const link = `${appUrl()}/invite/${plainToken}`;
-  await notifications.email({ recipient: invitation.email, subject: 'Convite para o Portal MD', body: `Acesse ${link} para criar sua senha.` });
-  await audit(user.id, 'USER_INVITED', 'InvitationToken', invitation.id, { email: invitation.email, role });
-  revalidatePath('/dashboard');
+export async function inviteUserAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const user = await requireSessionUser();
+    if (!canManageMd(user.role)) return { status: 'error', message: 'Acesso negado.' };
+
+    const name = text(form, 'name');
+    const email = text(form, 'email').toLowerCase();
+    const role = text(form, 'role') as UserRole;
+    const companyId = role === UserRole.ADMIN_MD ? null : text(form, 'companyId') || null;
+
+    if (!name) return { status: 'error', message: 'Informe o nome do usuario.' };
+    if (!email || !email.includes('@')) return { status: 'error', message: 'Informe um e-mail valido.' };
+    if (!isUserRole(role)) return { status: 'error', message: 'Perfil de usuario invalido.' };
+    if (role !== UserRole.ADMIN_MD && !companyId) return { status: 'error', message: 'Usuarios clientes precisam de empresa vinculada.' };
+
+    const plainToken = createPlainToken();
+    const invitation = await prisma.invitationToken.create({
+      data: { email, name, role, companyId, plainToken, tokenHash: hashToken(plainToken), expiresAt: addHours(72), createdById: user.id }
+    });
+    const link = `${appUrl()}/invite/${plainToken}`;
+
+    let emailSent = true;
+    try {
+      await notifications.email({ recipient: invitation.email, subject: 'Convite para o Portal MD', body: `Acesse ${link} para criar sua senha.` });
+    } catch (error) {
+      emailSent = false;
+      console.error('[invite] Convite criado, mas envio de e-mail falhou', { invitationId: invitation.id, email: invitation.email, error: errorMessage(error) });
+    }
+
+    await audit(user.id, 'USER_INVITED', 'InvitationToken', invitation.id, { email: invitation.email, role, emailSent });
+    revalidatePath('/dashboard');
+
+    if (!emailSent) return { status: 'warning', message: 'Convite criado, mas houve falha no envio do e-mail.' };
+    return { status: 'success', message: `Convite enviado com sucesso para ${invitation.email}.` };
+  } catch (error) {
+    console.error('[invite] Falha ao criar convite', { error: errorMessage(error) });
+    return { status: 'error', message: 'Nao foi possivel enviar o convite.' };
+  }
 }
 
-export async function acceptInvitationAction(form: FormData) {
-  const tokenHash = hashToken(text(form, 'token'));
-  const invitation = await prisma.invitationToken.findUnique({ where: { tokenHash } });
-  if (!invitation || invitation.acceptedAt || invitation.expiresAt < new Date()) throw new Error('Convite invalido ou expirado');
-  const passwordHash = await hashPassword(text(form, 'password'));
-  const user = await prisma.user.upsert({ where: { email: invitation.email }, update: { name: invitation.name, role: invitation.role, companyId: invitation.companyId, passwordHash, active: true }, create: { name: invitation.name, email: invitation.email, role: invitation.role, companyId: invitation.companyId, passwordHash } });
-  await prisma.invitationToken.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } });
-  await audit(user.id, 'INVITATION_ACCEPTED', 'User', user.id);
-  redirect('/login');
+export async function acceptInvitationAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
+  const token = text(form, 'token');
+  const password = text(form, 'password');
+  const confirmPassword = text(form, 'confirmPassword');
+
+  if (!token) return { status: 'error', message: 'Convite invalido.' };
+  if (password.length < 8) return { status: 'error', message: 'A senha deve ter pelo menos 8 caracteres.' };
+  if (password !== confirmPassword) return { status: 'error', message: 'As senhas informadas nao conferem.' };
+
+  try {
+    const tokenHash = hashToken(token);
+    const invitation = await prisma.invitationToken.findUnique({ where: { tokenHash } });
+
+    if (!invitation) return { status: 'error', message: 'Convite invalido. Solicite um novo convite ao administrador.' };
+    if (invitation.acceptedAt) return { status: 'error', message: 'Este convite ja foi aceito. Acesse a tela de login.' };
+    if (invitation.expiresAt < new Date()) return { status: 'error', message: 'Este convite expirou. Solicite um novo convite ao administrador.' };
+    if (invitation.role !== UserRole.ADMIN_MD && !invitation.companyId) return { status: 'error', message: 'Convite sem empresa vinculada. Solicite um novo convite ao administrador.' };
+
+    const passwordHash = await hashPassword(password);
+    const user = await prisma.user.upsert({
+      where: { email: invitation.email },
+      update: { name: invitation.name, role: invitation.role, companyId: invitation.companyId, passwordHash, active: true },
+      create: { name: invitation.name, email: invitation.email, role: invitation.role, companyId: invitation.companyId, passwordHash }
+    });
+    await prisma.invitationToken.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } });
+    await audit(user.id, 'INVITATION_ACCEPTED', 'User', user.id, { invitationId: invitation.id });
+  } catch (error) {
+    console.error('[invite] Falha ao aceitar convite', { tokenFingerprint: tokenFingerprint(token), error: errorMessage(error) });
+    return { status: 'error', message: 'Nao foi possivel criar seu acesso agora. Tente novamente ou solicite um novo convite.' };
+  }
+
+  redirect('/login?message=cadastro-criado');
 }
 
 export async function requestPasswordResetAction(form: FormData) {
@@ -170,4 +222,16 @@ async function notifyCompanyManagers(requestId: string, subject: string, body: s
   const request = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
   const managers = await prisma.user.findMany({ where: { companyId: request.companyId, role: UserRole.CLIENTE_GESTOR, active: true } });
   await Promise.all(managers.map((manager) => notifications.email({ serviceRequestId: requestId, recipient: manager.email, subject, body })));
+}
+
+function isUserRole(role: string): role is UserRole {
+  return Object.values(UserRole).includes(role as UserRole);
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Erro desconhecido';
+}
+
+function tokenFingerprint(token: string) {
+  return hashToken(token).slice(0, 12);
 }
