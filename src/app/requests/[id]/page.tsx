@@ -2,6 +2,7 @@ import { AttachmentType, ServiceRequestStatus } from '@prisma/client';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { QuoteForm } from '@/components/quote-form';
+import { ResendQuoteEmailForm } from '@/components/resend-quote-email-form';
 import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/session';
 import { canApproveQuote, canManageMd, canRequestInvoice } from '@/lib/rbac';
@@ -85,6 +86,7 @@ export default async function RequestPage({ params }: { params: { id: string } }
           {latestQuote.pdfAttachment ? <a className="font-semibold text-mdblue" href={`/api/attachments/${latestQuote.pdfAttachment.id}`}>Baixar PDF do orçamento</a> : null}
           {latestQuote.attachment ? <a className="font-semibold text-mdblue" href={`/api/attachments/${latestQuote.attachment.id}`}>Baixar anexo de apoio</a> : null}
         </div>
+        {mdUser ? <ResendQuoteEmailForm requestId={request.id} /> : null}
       </div>
       {canDecideQuote ? <div className="mt-4 grid gap-3 md:grid-cols-2"><form action={approveQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observação opcional" /><button className="btn">Aprovar orçamento</button></form><form action={rejectQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observação opcional" /><button className="btn-secondary">Reprovar orçamento</button></form></div> : null}
     </section> : null}
