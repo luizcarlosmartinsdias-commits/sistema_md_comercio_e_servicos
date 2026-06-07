@@ -34,7 +34,7 @@ export class NotificationService {
     if (!apiKey || !from) {
       const message = 'EMAIL_PROVIDER=resend exige RESEND_API_KEY e EMAIL_FROM configurados.';
       console.error('[notification:resend] Configuracao ausente', { hasApiKey: Boolean(apiKey), hasEmailFrom: Boolean(from) });
-      await this.log(NotificationChannel.EMAIL, 'resend', input, 'FAILED');
+      await this.log(NotificationChannel.EMAIL, 'resend', input, 'FAILED', message);
       throw new Error(message);
     }
 
@@ -93,26 +93,42 @@ export class NotificationService {
   }
 
   private async logResendFailure(input: SendInput, error: unknown) {
-    if (error instanceof Error) {
-      console.error('[notification:resend] Falha ao enviar email', {
-        recipient: input.recipient,
-        subject: input.subject,
-        serviceRequestId: input.serviceRequestId,
-        attachments: input.attachments?.map((attachment) => attachment.filename),
-        error: error.message
-      });
-    } else {
-      console.error('[notification:resend] Falha inesperada ao enviar email', { recipient: input.recipient, subject: input.subject, serviceRequestId: input.serviceRequestId });
-    }
+    const message = errorMessage(error);
+    console.error('[notification:resend] Falha ao enviar email', {
+      recipient: input.recipient,
+      subject: input.subject,
+      serviceRequestId: input.serviceRequestId,
+      attachments: input.attachments?.map((attachment) => attachment.filename),
+      error: message
+    });
 
-    await this.log(NotificationChannel.EMAIL, 'resend', input, 'FAILED');
+    await this.log(NotificationChannel.EMAIL, 'resend', input, 'FAILED', message);
   }
 
-  private async log(channel: NotificationChannel, provider: string, input: SendInput, status: NotificationStatus) {
+  private async log(channel: NotificationChannel, provider: string, input: SendInput, status: NotificationStatus, error?: string) {
     if (provider === 'mock') {
       const label = channel === NotificationChannel.WHATSAPP ? 'simulado' : 'mock';
       console.info(`[${label}:${channel}]`, input.subject, input.recipient);
     }
-    return this.prisma.notificationLog.create({ data: { channel, provider, recipient: input.recipient, subject: input.subject, body: input.body, serviceRequestId: input.serviceRequestId, status } });
+    return this.prisma.notificationLog.create({
+      data: {
+        channel,
+        provider,
+        recipient: input.recipient,
+        subject: input.subject,
+        body: input.body,
+        serviceRequestId: input.serviceRequestId,
+        status,
+        errorMessage: error ? sanitizeError(error) : null
+      }
+    });
   }
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Erro desconhecido';
+}
+
+function sanitizeError(error: string) {
+  return error.replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [REDACTED]').slice(0, 500);
 }

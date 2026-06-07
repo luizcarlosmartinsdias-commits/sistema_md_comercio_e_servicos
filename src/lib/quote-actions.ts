@@ -23,8 +23,8 @@ import { requireSessionUser } from '@/lib/session';
 import { NotificationService } from '@/lib/services/notification';
 import { StorageService } from '@/lib/services/storage';
 
-type DeliveryResult = { sent: number; failed: number; totalRecipients: number; recipients: string[] };
-type QuoteWithItems = Quote & { items: QuoteItem[]; serviceRequest: ServiceRequest & { company: Company; requester: User } };
+type DeliveryResult = { sent: number; failed: number; totalRecipients: number; recipients: string[]; fallbackSent: number };
+type QuoteWithItems = Quote & { items: QuoteItem[]; serviceRequest: ServiceRequest & { company: Company; requester: User }; pdfAttachment?: { id: string } | null };
 type SelectedQuoteItem = { service: ServiceCatalog; quantity: number; unitCents: number };
 
 const notifications = new NotificationService(prisma);
@@ -134,7 +134,7 @@ async function createQuoteRecord(form: FormData, userId: string) {
 async function ensureQuoteEmailDelivery(requestId: string, changedById: string): Promise<DeliveryResult> {
   const quote = await findLatestQuote(requestId);
   const expectedRecipients = await quoteRecipients(quote);
-  if (expectedRecipients.length === 0) return { sent: 0, failed: 0, totalRecipients: 0, recipients: [] };
+  if (expectedRecipients.length === 0) return { sent: 0, failed: 0, totalRecipients: 0, recipients: [], fallbackSent: 0 };
 
   const logs = await prisma.notificationLog.findMany({
     where: {
@@ -160,7 +160,8 @@ async function ensureQuoteEmailDelivery(requestId: string, changedById: string):
       sent: deliveredRecipients.size,
       failed: logs.filter((log) => log.status === 'FAILED').length,
       totalRecipients: expectedRecipients.length,
-      recipients: expectedRecipients
+      recipients: expectedRecipients,
+      fallbackSent: 0
     };
   }
 
@@ -176,14 +177,15 @@ async function ensureQuoteEmailDelivery(requestId: string, changedById: string):
     sent: deliveredRecipients.size + delivery.sent,
     failed: logs.filter((log) => log.status === 'FAILED').length + delivery.failed,
     totalRecipients: expectedRecipients.length,
-    recipients: expectedRecipients
+    recipients: expectedRecipients,
+    fallbackSent: delivery.fallbackSent
   };
 }
 
 async function findLatestQuote(requestId: string) {
   const quote = await prisma.quote.findFirst({
     where: { serviceRequestId: requestId },
-    include: { items: true, serviceRequest: { include: { company: true, requester: true } } },
+    include: { items: true, pdfAttachment: true, serviceRequest: { include: { company: true, requester: true } } },
     orderBy: { createdAt: 'desc' }
   });
 
@@ -205,33 +207,52 @@ async function quoteRecipients(quote: QuoteWithItems) {
 }
 
 async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], changedById: string, historyNote: string): Promise<DeliveryResult> {
-  if (recipients.length === 0) return { sent: 0, failed: 0, totalRecipients: 0, recipients: [] };
+  if (recipients.length === 0) return { sent: 0, failed: 0, totalRecipients: 0, recipients: [], fallbackSent: 0 };
 
   const request = quote.serviceRequest;
-  const pdfBytes = await generateQuotePdf({ quote, request, portalUrl: `${appUrl()}/requests/${request.id}` });
+  const requestUrl = `${appUrl()}/requests/${request.id}`;
+  const pdfUrl = quote.pdfAttachment ? `${appUrl()}/api/attachments/${quote.pdfAttachment.id}` : requestUrl;
+  const pdfBytes = await generateQuotePdf({ quote, request, portalUrl: requestUrl });
   const subject = `Orçamento disponível para aprovação - ${request.protocol}`;
   const body = [
     `Protocolo: ${request.protocol}`,
     `Empresa: ${request.company.name}`,
     `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`,
     `Valor total: ${formatMoney(quote.totalCents)}`,
-    `Acesse o portal para aprovar ou reprovar: ${appUrl()}/requests/${request.id}`,
+    `Acesse o portal para aprovar ou reprovar: ${requestUrl}`,
+    `Link direto para baixar o PDF: ${pdfUrl}`,
     'O PDF padronizado do orçamento está anexado a este e-mail.'
+  ].join('\n');
+  const fallbackBody = [
+    `Protocolo: ${request.protocol}`,
+    `Empresa: ${request.company.name}`,
+    `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`,
+    `Valor total: ${formatMoney(quote.totalCents)}`,
+    `Acesse o portal para aprovar ou reprovar: ${requestUrl}`,
+    `Baixe o PDF do orçamento neste link: ${pdfUrl}`,
+    'O envio com anexo falhou, por isso este e-mail foi enviado com o link do PDF.'
   ].join('\n');
   const attachment = { filename: `${quote.quoteNumber ?? quote.id}.pdf`, content: Buffer.from(pdfBytes).toString('base64') };
 
   const results = await Promise.all(recipients.map(async (recipient) => {
     try {
       await notifications.email({ serviceRequestId: request.id, recipient, subject, body, attachments: [attachment] });
-      return { recipient, sent: true };
+      return { recipient, sent: true, fallback: false };
     } catch (error) {
-      console.error('[quote] Falha ao enviar PDF do orçamento', { requestId: request.id, quoteId: quote.id, recipient, error: errorMessage(error) });
-      return { recipient, sent: false };
+      console.error('[quote] Falha ao enviar PDF anexado do orçamento', { requestId: request.id, quoteId: quote.id, recipient, error: errorMessage(error) });
+      try {
+        await notifications.email({ serviceRequestId: request.id, recipient, subject: `${subject} - link do PDF`, body: fallbackBody });
+        return { recipient, sent: true, fallback: true };
+      } catch (fallbackError) {
+        console.error('[quote] Falha ao enviar fallback sem anexo do orçamento', { requestId: request.id, quoteId: quote.id, recipient, error: errorMessage(fallbackError) });
+        return { recipient, sent: false, fallback: false };
+      }
     }
   }));
 
   const sent = results.filter((result) => result.sent).length;
   const failed = results.length - sent;
+  const fallbackSent = results.filter((result) => result.fallback).length;
 
   await prisma.serviceRequestStatusHistory.create({
     data: {
@@ -239,11 +260,11 @@ async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], ch
       fromStatus: request.currentStatus,
       toStatus: request.currentStatus,
       changedById,
-      note: sent > 0 ? historyNote : 'Orçamento criado, mas o envio do PDF por e-mail falhou.'
+      note: sent > 0 ? (fallbackSent > 0 ? `Orçamento enviado por e-mail para ${sent} destinatário(s); ${fallbackSent} sem anexo, com link do PDF.` : historyNote) : 'Orçamento criado, mas o envio do PDF por e-mail falhou.'
     }
   });
 
-  return { sent, failed, totalRecipients: recipients.length, recipients };
+  return { sent, failed, totalRecipients: recipients.length, recipients, fallbackSent };
 }
 
 async function saveAttachment(requestId: string, userId: string, file: File, type: AttachmentType) {
@@ -255,9 +276,10 @@ function deliveryState(prefix: string, delivery: DeliveryResult): ActionState {
   if (delivery.totalRecipients === 0) {
     return { status: 'warning', message: `${prefix}, mas não há destinatário com e-mail cadastrado. Cadastre e-mail na empresa ou ative um cliente com e-mail.` };
   }
-  if (delivery.sent > 0 && delivery.failed === 0) return { status: 'success', message: `${prefix} e enviado para ${delivery.sent} destinatário(s).` };
+  if (delivery.sent > 0 && delivery.failed === 0 && delivery.fallbackSent === 0) return { status: 'success', message: `${prefix} e enviado com PDF anexado para ${delivery.sent} destinatário(s).` };
+  if (delivery.sent > 0 && delivery.failed === 0) return { status: 'warning', message: `${prefix}. E-mail enviado para ${delivery.sent} destinatário(s), mas ${delivery.fallbackSent} receberam link do PDF sem anexo.` };
   if (delivery.sent > 0) return { status: 'warning', message: `${prefix}. Enviado para ${delivery.sent} destinatário(s), com falha para ${delivery.failed}.` };
-  return { status: 'warning', message: `${prefix}, mas o e-mail não foi enviado. Use o botão Reenviar PDF por e-mail após verificar RESEND_API_KEY, EMAIL_FROM e domínio remetente no Resend.` };
+  return { status: 'warning', message: `${prefix}, mas o e-mail não foi enviado. Veja os logs de notificação na ordem de serviço.` };
 }
 
 function moneyToCents(value: string) {

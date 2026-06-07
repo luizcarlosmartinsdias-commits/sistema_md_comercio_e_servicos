@@ -227,6 +227,7 @@ model NotificationLog {
   body             String
   provider         String
   status           String   @default("MOCKED")
+  errorMessage     String?
   createdAt        DateTime @default(now())
 }
 
