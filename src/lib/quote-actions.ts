@@ -1,40 +1,54 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { NotificationChannel, type Company, type Quote, type QuoteItem, type ServiceRequest, type User } from '@prisma/client';
+import {
+  AttachmentType,
+  NotificationChannel,
+  QuoteStatus,
+  ServiceRequestStatus,
+  type Company,
+  type Quote,
+  type QuoteItem,
+  type ServiceCatalog,
+  type ServiceRequest,
+  type User
+} from '@prisma/client';
 import type { ActionState } from '@/lib/actions';
-import { createQuoteAction } from '@/lib/actions';
+import { audit } from '@/lib/audit';
 import { formatMoney } from '@/lib/format';
 import { generateQuotePdf } from '@/lib/quote-pdf';
 import { prisma } from '@/lib/prisma';
 import { canManageMd, clientRoleFilter } from '@/lib/rbac';
 import { requireSessionUser } from '@/lib/session';
 import { NotificationService } from '@/lib/services/notification';
+import { StorageService } from '@/lib/services/storage';
 
 type DeliveryResult = { sent: number; failed: number; totalRecipients: number; recipients: string[] };
 type QuoteWithItems = Quote & { items: QuoteItem[]; serviceRequest: ServiceRequest & { company: Company; requester: User } };
+type SelectedQuoteItem = { service: ServiceCatalog; quantity: number; unitCents: number };
 
 const notifications = new NotificationService(prisma);
 const appUrl = () => (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 
 export async function createQuoteWithFeedbackAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
-  const requestId = String(form.get('requestId') ?? '').trim();
+  const requestId = text(form, 'requestId');
 
   try {
     const user = await requireSessionUser();
     if (!canManageMd(user.role)) return { status: 'error', message: 'Acesso negado.' };
 
-    await createQuoteAction(form);
+    await createQuoteRecord(form, user.id);
     const delivery = await ensureQuoteEmailDelivery(requestId, user.id);
     return deliveryState('Orçamento gerado', delivery);
   } catch (error) {
-    console.error('[quote] Falha ao gerar ou enviar orçamento', { requestId, error: errorMessage(error) });
-    return { status: 'error', message: 'Não foi possível gerar e enviar o orçamento. Verifique os dados e tente novamente.' };
+    console.error('[quote] Falha ao gerar orçamento', { requestId, error: errorMessage(error) });
+    return { status: 'error', message: 'Não foi possível gerar o orçamento. Verifique os dados e tente novamente.' };
   }
 }
 
 export async function resendLatestQuotePdfAction(_previousState: ActionState, form: FormData): Promise<ActionState> {
-  const requestId = String(form.get('requestId') ?? '').trim();
+  const requestId = text(form, 'requestId');
 
   try {
     const user = await requireSessionUser();
@@ -49,6 +63,72 @@ export async function resendLatestQuotePdfAction(_previousState: ActionState, fo
     console.error('[quote] Falha ao reenviar PDF do orçamento', { requestId, error: errorMessage(error) });
     return { status: 'error', message: 'Não foi possível reenviar o PDF do orçamento. Verifique os logs da Vercel e tente novamente.' };
   }
+}
+
+async function createQuoteRecord(form: FormData, userId: string) {
+  const requestId = text(form, 'requestId');
+  const current = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId }, include: { company: true, requester: true } });
+  const selectedIds = form.getAll('serviceCatalogId').map((value) => String(value)).filter(Boolean);
+  if (selectedIds.length === 0) throw new Error('Selecione pelo menos um serviço para criar o orçamento.');
+
+  const services = await prisma.serviceCatalog.findMany({ where: { id: { in: selectedIds }, active: true } });
+  const serviceById = new Map(services.map((service) => [service.id, service]));
+  const items = selectedIds.map((serviceId) => {
+    const service = serviceById.get(serviceId);
+    if (!service) return null;
+    const quantity = Math.max(1, Number(text(form, `quantity-${serviceId}`) || '1'));
+    const unitCents = moneyToCents(text(form, `unitValue-${serviceId}`)) || service.defaultUnitCents;
+    return { service, quantity, unitCents };
+  }).filter((item): item is SelectedQuoteItem => Boolean(item));
+
+  if (items.length === 0) throw new Error('Nenhum serviço ativo foi encontrado para o orçamento.');
+
+  const subtotalCents = items.reduce((sum, item) => sum + item.quantity * item.unitCents, 0);
+  const discountCents = Math.min(subtotalCents, Math.max(0, moneyToCents(text(form, 'discountValue'))));
+  const totalCents = subtotalCents - discountCents;
+  const notes = text(form, 'notes');
+  const validityDays = positiveInt(text(form, 'validityDays'), 7);
+  const warrantyDays = positiveInt(text(form, 'warrantyDays'), 90);
+  const executionDeadlineDays = positiveInt(text(form, 'executionDeadlineDays'), 5);
+  let supportAttachmentId: string | undefined;
+  const file = form.get('file');
+  if (file instanceof File && file.size > 0) supportAttachmentId = (await saveAttachment(requestId, userId, file, AttachmentType.OUTRO)).id;
+
+  const quote = await prisma.quote.create({
+    data: {
+      serviceRequestId: requestId,
+      quoteNumber: nextQuoteNumber(current.protocol),
+      title: `Orçamento ${current.protocol}`,
+      description: notes || null,
+      status: QuoteStatus.ENVIADO,
+      subtotalCents,
+      discountCents,
+      totalCents,
+      validityDays,
+      warrantyDays,
+      executionDeadlineDays,
+      notes: notes || null,
+      attachmentId: supportAttachmentId,
+      items: { create: items.map(({ service, quantity, unitCents }) => ({ serviceCatalogId: service.id, description: `${service.name}: ${service.description}`, quantity, unitCents })) }
+    },
+    include: { items: true }
+  });
+
+  const pdfBytes = await generateQuotePdf({ quote, request: current, portalUrl: `${appUrl()}/requests/${requestId}` });
+  const pdfFileName = `${quote.quoteNumber ?? quote.id}.pdf`;
+  const storedPdf = await StorageService.saveBytes(pdfBytes, requestId, pdfFileName, 'application/pdf');
+  const pdfAttachment = await prisma.attachment.create({ data: { serviceRequestId: requestId, uploadedById: userId, type: AttachmentType.ORCAMENTO, ...storedPdf } });
+
+  await prisma.quote.update({ where: { id: quote.id }, data: { pdfAttachmentId: pdfAttachment.id } });
+  await prisma.serviceRequest.update({
+    where: { id: requestId },
+    data: {
+      currentStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO,
+      statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: userId, note: `Orçamento criado: ${quote.quoteNumber}` } }
+    }
+  });
+  await audit(userId, 'QUOTE_CREATED', 'Quote', quote.id, { quoteNumber: quote.quoteNumber, subtotalCents, discountCents, totalCents, emailDeferred: true });
+  revalidatePath(`/requests/${requestId}`);
 }
 
 async function ensureQuoteEmailDelivery(requestId: string, changedById: string): Promise<DeliveryResult> {
@@ -84,11 +164,11 @@ async function ensureQuoteEmailDelivery(requestId: string, changedById: string):
     };
   }
 
-  console.info('[quote] Envio complementar do PDF do orçamento', {
+  console.info('[quote] Envio do PDF do orçamento', {
     requestId,
     quoteId: quote.id,
     expectedRecipients: expectedRecipients.length,
-    missingRecipients: neverAttemptedRecipients.length
+    recipientsToSend: neverAttemptedRecipients.length
   });
 
   const delivery = await sendQuotePdfEmail(quote, neverAttemptedRecipients, changedById, `PDF do orçamento enviado por e-mail para ${neverAttemptedRecipients.length} destinatário(s).`);
@@ -153,19 +233,22 @@ async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], ch
   const sent = results.filter((result) => result.sent).length;
   const failed = results.length - sent;
 
-  if (sent > 0) {
-    await prisma.serviceRequestStatusHistory.create({
-      data: {
-        serviceRequestId: request.id,
-        fromStatus: request.currentStatus,
-        toStatus: request.currentStatus,
-        changedById,
-        note: historyNote
-      }
-    });
-  }
+  await prisma.serviceRequestStatusHistory.create({
+    data: {
+      serviceRequestId: request.id,
+      fromStatus: request.currentStatus,
+      toStatus: request.currentStatus,
+      changedById,
+      note: sent > 0 ? historyNote : 'Orçamento criado, mas o envio do PDF por e-mail falhou.'
+    }
+  });
 
   return { sent, failed, totalRecipients: recipients.length, recipients };
+}
+
+async function saveAttachment(requestId: string, userId: string, file: File, type: AttachmentType) {
+  const stored = await StorageService.save(file, requestId);
+  return prisma.attachment.create({ data: { serviceRequestId: requestId, uploadedById: userId, type, ...stored } });
 }
 
 function deliveryState(prefix: string, delivery: DeliveryResult): ActionState {
@@ -174,7 +257,25 @@ function deliveryState(prefix: string, delivery: DeliveryResult): ActionState {
   }
   if (delivery.sent > 0 && delivery.failed === 0) return { status: 'success', message: `${prefix} e enviado para ${delivery.sent} destinatário(s).` };
   if (delivery.sent > 0) return { status: 'warning', message: `${prefix}. Enviado para ${delivery.sent} destinatário(s), com falha para ${delivery.failed}.` };
-  return { status: 'error', message: `${prefix}, mas o e-mail não foi enviado. Verifique RESEND_API_KEY, EMAIL_FROM e o domínio remetente no Resend.` };
+  return { status: 'warning', message: `${prefix}, mas o e-mail não foi enviado. Use o botão Reenviar PDF por e-mail após verificar RESEND_API_KEY, EMAIL_FROM e domínio remetente no Resend.` };
+}
+
+function moneyToCents(value: string) {
+  const clean = value.replace(/[^0-9,.-]/g, '').trim();
+  if (!clean) return 0;
+  const normalized = clean.includes(',') ? clean.replace(/\./g, '').replace(',', '.') : clean;
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? Math.round(amount * 100) : 0;
+}
+
+function positiveInt(value: string, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
+}
+
+function nextQuoteNumber(protocol: string) {
+  const stamp = Date.now().toString(36).toUpperCase();
+  return `ORC-${protocol}-${stamp}`;
 }
 
 function uniqueEmails(values: Array<string | null | undefined>) {
