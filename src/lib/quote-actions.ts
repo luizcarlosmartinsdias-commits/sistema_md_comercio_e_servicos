@@ -72,11 +72,12 @@ async function ensureQuoteEmailDelivery(requestId: string, changedById: string):
       .map((log) => normalizeEmail(log.recipient))
       .filter(Boolean)
   );
-  const missingRecipients = expectedRecipients.filter((recipient) => !deliveredRecipients.has(normalizeEmail(recipient)));
+  const loggedRecipients = new Set(logs.map((log) => normalizeEmail(log.recipient)).filter(Boolean));
+  const neverAttemptedRecipients = expectedRecipients.filter((recipient) => !loggedRecipients.has(normalizeEmail(recipient)));
 
-  if (missingRecipients.length === 0) {
+  if (neverAttemptedRecipients.length === 0) {
     return {
-      sent: expectedRecipients.length,
+      sent: deliveredRecipients.size,
       failed: logs.filter((log) => log.status === 'FAILED').length,
       totalRecipients: expectedRecipients.length,
       recipients: expectedRecipients
@@ -87,10 +88,16 @@ async function ensureQuoteEmailDelivery(requestId: string, changedById: string):
     requestId,
     quoteId: quote.id,
     expectedRecipients: expectedRecipients.length,
-    missingRecipients: missingRecipients.length
+    missingRecipients: neverAttemptedRecipients.length
   });
 
-  return sendQuotePdfEmail(quote, missingRecipients, changedById, `PDF do orçamento enviado por e-mail para ${missingRecipients.length} destinatário(s).`);
+  const delivery = await sendQuotePdfEmail(quote, neverAttemptedRecipients, changedById, `PDF do orçamento enviado por e-mail para ${neverAttemptedRecipients.length} destinatário(s).`);
+  return {
+    sent: deliveredRecipients.size + delivery.sent,
+    failed: logs.filter((log) => log.status === 'FAILED').length + delivery.failed,
+    totalRecipients: expectedRecipients.length,
+    recipients: expectedRecipients
+  };
 }
 
 async function findLatestQuote(requestId: string) {
@@ -133,17 +140,18 @@ async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], ch
   ].join('\n');
   const attachment = { filename: `${quote.quoteNumber ?? quote.id}.pdf`, content: Buffer.from(pdfBytes).toString('base64') };
 
-  let sent = 0;
-  let failed = 0;
-  for (const recipient of recipients) {
+  const results = await Promise.all(recipients.map(async (recipient) => {
     try {
       await notifications.email({ serviceRequestId: request.id, recipient, subject, body, attachments: [attachment] });
-      sent += 1;
+      return { recipient, sent: true };
     } catch (error) {
-      failed += 1;
       console.error('[quote] Falha ao enviar PDF do orçamento', { requestId: request.id, quoteId: quote.id, recipient, error: errorMessage(error) });
+      return { recipient, sent: false };
     }
-  }
+  }));
+
+  const sent = results.filter((result) => result.sent).length;
+  const failed = results.length - sent;
 
   if (sent > 0) {
     await prisma.serviceRequestStatusHistory.create({
