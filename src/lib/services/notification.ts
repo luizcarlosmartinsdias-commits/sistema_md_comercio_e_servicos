@@ -1,10 +1,13 @@
 import { NotificationChannel, PrismaClient } from '@prisma/client';
-import { Resend } from 'resend';
 
 type EmailAttachment = { filename: string; content: string };
 type SendInput = { serviceRequestId?: string; recipient: string; subject: string; body: string; attachments?: EmailAttachment[] };
 
 type NotificationStatus = 'MOCKED' | 'SENT' | 'FAILED';
+
+type ResendResponse = { id?: string; error?: { message?: string } };
+
+const resendTimeoutMs = 8000;
 
 export class NotificationService {
   constructor(private prisma: PrismaClient) {}
@@ -35,24 +38,45 @@ export class NotificationService {
       throw new Error(message);
     }
 
-    const resend = new Resend(apiKey);
-    let response: Awaited<ReturnType<typeof resend.emails.send>>;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), resendTimeoutMs);
+    let response: Response;
 
     try {
-      response = await resend.emails.send({
-        from,
-        to: input.recipient,
-        subject: input.subject,
-        text: input.body,
-        attachments: input.attachments
+      response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from,
+          to: [input.recipient],
+          subject: input.subject,
+          text: input.body,
+          attachments: input.attachments
+        })
       });
     } catch (error) {
-      await this.logResendFailure(input, error);
-      throw error;
+      const normalized = error instanceof Error && error.name === 'AbortError'
+        ? new Error(`Tempo limite de ${resendTimeoutMs / 1000}s excedido ao enviar e-mail pelo Resend.`)
+        : error;
+      await this.logResendFailure(input, normalized);
+      throw normalized;
+    } finally {
+      clearTimeout(timeout);
     }
 
-    if (response.error) {
-      const message = response.error.message || 'Falha desconhecida ao enviar email pelo Resend.';
+    let payload: ResendResponse = {};
+    try {
+      payload = await response.json() as ResendResponse;
+    } catch {
+      payload = {};
+    }
+
+    if (!response.ok || payload.error) {
+      const message = payload.error?.message || `Resend retornou HTTP ${response.status}.`;
       await this.logResendFailure(input, new Error(message));
       throw new Error(message);
     }
@@ -62,7 +86,7 @@ export class NotificationService {
       subject: input.subject,
       serviceRequestId: input.serviceRequestId,
       attachments: input.attachments?.map((attachment) => attachment.filename),
-      resendEmailId: response.data?.id
+      resendEmailId: payload.id
     });
 
     return this.log(NotificationChannel.EMAIL, 'resend', input, 'SENT');
