@@ -19,7 +19,8 @@ export default async function RequestPage({ params }: { params: { id: string } }
       requester: true,
       statusHistory: { include: { changedBy: true }, orderBy: { createdAt: 'desc' } },
       quotes: { include: { items: { include: { serviceCatalog: true } }, attachment: true, pdfAttachment: true }, orderBy: { createdAt: 'desc' } },
-      attachments: { include: { uploadedBy: true }, orderBy: { createdAt: 'desc' } }
+      attachments: { include: { uploadedBy: true }, orderBy: { createdAt: 'desc' } },
+      notifications: { orderBy: { createdAt: 'desc' }, take: 20 }
     }
   });
   if (!request) notFound();
@@ -89,6 +90,16 @@ export default async function RequestPage({ params }: { params: { id: string } }
         {mdUser ? <ResendQuoteEmailForm requestId={request.id} /> : null}
       </div>
       {canDecideQuote ? <div className="mt-4 grid gap-3 md:grid-cols-2"><form action={approveQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observação opcional" /><button className="btn">Aprovar orçamento</button></form><form action={rejectQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observação opcional" /><button className="btn-secondary">Reprovar orçamento</button></form></div> : null}
+    </section> : null}
+
+    {mdUser ? <section className="card">
+      <h2 className="font-semibold">Logs de notificação</h2>
+      {request.notifications.length === 0 ? <p className="mt-3 text-sm text-slate-600">Nenhuma notificação registrada para esta solicitação.</p> : <div className="mt-4 overflow-x-auto rounded-md border border-slate-200">
+        <table className="w-full text-left text-sm">
+          <thead><tr className="border-b bg-slate-50"><th className="p-2">Data</th><th>Canal</th><th>Status</th><th>Provedor</th><th>Destinatário</th><th>Assunto</th><th>Erro</th></tr></thead>
+          <tbody>{request.notifications.map((log) => <tr key={log.id} className="border-b align-top last:border-0"><td className="p-2 whitespace-nowrap">{log.createdAt.toLocaleString('pt-BR')}</td><td>{log.channel}</td><td className={log.status === 'FAILED' ? 'font-semibold text-red-700' : 'font-semibold text-green-700'}>{log.status}</td><td>{log.provider}</td><td>{log.recipient}</td><td>{log.subject}</td><td className="max-w-xs text-red-700">{log.errorMessage ?? '-'}</td></tr>)}</tbody>
+        </table>
+      </div>}
     </section> : null}
 
     <section className="card">
