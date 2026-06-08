@@ -47,5 +47,5 @@ export function QuoteForm({ requestId, services }: { requestId: string; services
 
 function SubmitButton({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
-  return <button className="btn" type="submit" disabled={disabled || pending}>{pending ? 'Gerando PDF...' : 'Gerar PDF e enviar orçamento'}</button>;
+  return <button className="btn" type="submit" disabled={disabled || pending}>{pending ? 'Gerando PDF...' : 'Gerar PDF do orçamento'}</button>;
 }
