@@ -15,8 +15,8 @@ export default async function LoginPage({ searchParams }: { searchParams?: { mes
   return (
     <main className="mx-auto grid min-h-[calc(100vh-69px)] max-w-6xl items-center gap-12 px-4 py-10 md:grid-cols-[1.05fr_0.95fr]">
       <section className="flex flex-col items-start">
-        <div className="flex w-full max-w-md justify-start rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
-          <BrandLogo className="h-auto w-56 object-contain md:w-72" priority />
+        <div className="flex w-full max-w-md items-center justify-center rounded-2xl bg-white px-8 py-7 shadow-sm ring-1 ring-slate-100">
+          <BrandLogo className="h-auto w-44 object-contain md:w-52" priority />
         </div>
         <h1 className="mt-10 max-w-xl text-3xl font-bold leading-tight text-mdgraphite">Assistência técnica B2B com rastreabilidade ponta a ponta.</h1>
         <p className="mt-3 max-w-xl text-slate-600">Acesse solicitações, orçamentos, ordens de serviço, notas fiscais e histórico de status da sua empresa.</p>
