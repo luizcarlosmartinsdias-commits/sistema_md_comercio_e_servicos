@@ -39,8 +39,7 @@ export async function createQuoteWithFeedbackAction(_previousState: ActionState,
     if (!canManageMd(user.role)) return { status: 'error', message: 'Acesso negado.' };
 
     await createQuoteRecord(form, user.id);
-    const delivery = await ensureQuoteEmailDelivery(requestId, user.id);
-    return deliveryState('Orçamento gerado', delivery);
+    return { status: 'success', message: 'Orçamento gerado com sucesso. Use o botão Reenviar PDF por e-mail para enviar ao cliente.' };
   } catch (error) {
     console.error('[quote] Falha ao gerar orçamento', { requestId, error: errorMessage(error) });
     return { status: 'error', message: 'Não foi possível gerar o orçamento. Verifique os dados e tente novamente.' };
@@ -61,7 +60,7 @@ export async function resendLatestQuotePdfAction(_previousState: ActionState, fo
     return deliveryState('PDF reenviado', delivery);
   } catch (error) {
     console.error('[quote] Falha ao reenviar PDF do orçamento', { requestId, error: errorMessage(error) });
-    return { status: 'error', message: 'Não foi possível reenviar o PDF do orçamento. Verifique os logs da Vercel e tente novamente.' };
+    return { status: 'error', message: 'Não foi possível reenviar o PDF do orçamento. Verifique os logs de notificação na ordem de serviço.' };
   }
 }
 
@@ -129,57 +128,6 @@ async function createQuoteRecord(form: FormData, userId: string) {
   });
   await audit(userId, 'QUOTE_CREATED', 'Quote', quote.id, { quoteNumber: quote.quoteNumber, subtotalCents, discountCents, totalCents, emailDeferred: true });
   revalidatePath(`/requests/${requestId}`);
-}
-
-async function ensureQuoteEmailDelivery(requestId: string, changedById: string): Promise<DeliveryResult> {
-  const quote = await findLatestQuote(requestId);
-  const expectedRecipients = await quoteRecipients(quote);
-  if (expectedRecipients.length === 0) return { sent: 0, failed: 0, totalRecipients: 0, recipients: [], fallbackSent: 0 };
-
-  const logs = await prisma.notificationLog.findMany({
-    where: {
-      serviceRequestId: requestId,
-      channel: NotificationChannel.EMAIL,
-      createdAt: { gte: quote.createdAt },
-      subject: { contains: quote.serviceRequest.protocol }
-    },
-    orderBy: { createdAt: 'desc' }
-  });
-
-  const deliveredRecipients = new Set(
-    logs
-      .filter((log) => log.status === 'SENT' || log.status === 'MOCKED')
-      .map((log) => normalizeEmail(log.recipient))
-      .filter(Boolean)
-  );
-  const loggedRecipients = new Set(logs.map((log) => normalizeEmail(log.recipient)).filter(Boolean));
-  const neverAttemptedRecipients = expectedRecipients.filter((recipient) => !loggedRecipients.has(normalizeEmail(recipient)));
-
-  if (neverAttemptedRecipients.length === 0) {
-    return {
-      sent: deliveredRecipients.size,
-      failed: logs.filter((log) => log.status === 'FAILED').length,
-      totalRecipients: expectedRecipients.length,
-      recipients: expectedRecipients,
-      fallbackSent: 0
-    };
-  }
-
-  console.info('[quote] Envio do PDF do orçamento', {
-    requestId,
-    quoteId: quote.id,
-    expectedRecipients: expectedRecipients.length,
-    recipientsToSend: neverAttemptedRecipients.length
-  });
-
-  const delivery = await sendQuotePdfEmail(quote, neverAttemptedRecipients, changedById, `PDF do orçamento enviado por e-mail para ${neverAttemptedRecipients.length} destinatário(s).`);
-  return {
-    sent: deliveredRecipients.size + delivery.sent,
-    failed: logs.filter((log) => log.status === 'FAILED').length + delivery.failed,
-    totalRecipients: expectedRecipients.length,
-    recipients: expectedRecipients,
-    fallbackSent: delivery.fallbackSent
-  };
 }
 
 async function findLatestQuote(requestId: string) {
