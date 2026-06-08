@@ -6,17 +6,20 @@ type QuoteWithItems = Quote & { items: QuoteItem[] };
 type RequestWithRelations = ServiceRequest & { company: Company; requester: User };
 
 const mdCompany = {
-  name: 'MD COMERCIO E SERVICOS',
+  name: 'MD COMÉRCIO E SERVIÇOS',
   legalName: 'LUIZ CARLOS MARTINS DIAS JUNIOR 13345695766',
   document: '42.595.449/0001-90',
   address: 'Rua Arpoador, 75 - Areal - Araruama/RJ - CEP 28976-366'
 };
+
+const logoPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAYAAABV7bNHAAAACXBIWXMAAAsTAAALEwEAmpwYAAABRUlEQVR4nO2YMU7DQBBF39GkIChogQpH4Ah0gAqXoKChSgqOgQ6QkKAgoQKJYYL8RDJZ2U7s7N2P6p5ZtiXb3Z2d2WcAAAAAAAAA4J8n0zQdG2OMbZ7n6bqusxACoKoqj8MwmMvl9vt9z2az+fM8P8/zfJ7n+fV6fQchBCFE0XUdgNls9nEcxzAMwzRN02Kx+H6/3+93u93u0tJSLBYLwzAMGYYhSZJcW1vL5XL5arW6Uqk8k8mEw+Hw4XBYaWkpq9XK5XJ5cHCwWCw+Go2+2+2m0+m8Xi8/Pz86nQ6n0+n5+fnk8/lwOJw4HE4kEgnP8+Tz+WQymUwmk8vl8sLCQjqdDgCA3W5nMpm8vb3V6/WWy+V6vd7tdvvn8/nc3Nz0ej0AANfr9e12+8fHh9ls9uTk5Kqqqg4ODqLRaAAAuVwul8vl+vr6KioqzGYzAIBOp9Pp9KqqqnK5XAAAJpNJp9Pp8vLyAADRaDRdXV2+vr7u7u6kUilBEIQgCHr9fr/fHwAAAAD8G+0ByxKk1cUZFqYAAAAASUVORK5CYII=';
 
 export async function generateQuotePdf({ quote, request, portalUrl }: { quote: QuoteWithItems; request: RequestWithRelations; portalUrl: string }) {
   const pdf = await PDFDocument.create();
   let page = pdf.addPage([595.28, 841.89]);
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const logo = await pdf.embedPng(Buffer.from(logoPngBase64, 'base64'));
   const blue = rgb(0.02, 0.21, 0.52);
   const black = rgb(0.08, 0.1, 0.16);
   const gray = rgb(0.36, 0.4, 0.47);
@@ -36,31 +39,30 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
   };
   const rule = () => page.drawLine({ start: { x: margin, y }, end: { x: 555, y }, thickness: 0.8, color: line });
 
-  page.drawRectangle({ x: margin, y: y - 58, width: 74, height: 50, color: blue });
-  page.drawText('MD', { x: margin + 15, y: y - 43, size: 28, font: bold, color: rgb(1, 1, 1) });
-  page.drawText(mdCompany.name, { x: 132, y: y - 8, size: 16, font: bold, color: blue });
-  page.drawText(`Razao Social: ${mdCompany.legalName}`, { x: 132, y: y - 28, size: 9, font: regular, color: black });
-  page.drawText(`CNPJ: ${mdCompany.document}`, { x: 132, y: y - 44, size: 9, font: regular, color: black });
-  page.drawText(`Endereco: ${mdCompany.address}`, { x: 132, y: y - 60, size: 8, font: regular, color: black });
+  page.drawImage(logo, { x: margin, y: y - 62, width: 112, height: 56 });
+  page.drawText(mdCompany.name, { x: 138, y: y - 8, size: 16, font: bold, color: blue });
+  page.drawText(`Razão Social: ${mdCompany.legalName}`, { x: 138, y: y - 28, size: 9, font: regular, color: black });
+  page.drawText(`CNPJ: ${mdCompany.document}`, { x: 138, y: y - 44, size: 9, font: regular, color: black });
+  page.drawText(`Endereço: ${mdCompany.address}`, { x: 138, y: y - 60, size: 8, font: regular, color: black });
   move(92);
 
-  page.drawText('ORCAMENTO', { x: margin, y, size: 24, font: bold, color: blue });
-  page.drawText(`No: ${quote.quoteNumber ?? quote.id}`, { x: 350, y: y + 8, size: 10, font: bold, color: black });
-  page.drawText(`Emissao: ${formatDate(quote.createdAt)}`, { x: 350, y: y - 8, size: 9, font: regular, color: black });
+  page.drawText('ORÇAMENTO', { x: margin, y, size: 24, font: bold, color: blue });
+  page.drawText(`Nº: ${quote.quoteNumber ?? quote.id}`, { x: 350, y: y + 8, size: 10, font: bold, color: black });
+  page.drawText(`Emissão: ${formatDate(quote.createdAt)}`, { x: 350, y: y - 8, size: 9, font: regular, color: black });
   move(22);
   rule();
   move(26);
 
   section('Dados do cliente');
   row('Empresa / Cliente', request.company.name, 'CNPJ / CPF', request.company.document ?? '-');
-  row('Solicitante', request.responsavel, 'E-mail', request.requester.email);
-  row('Telefone', request.telefone, 'Protocolo / O.S.', request.protocol);
+  row('Solicitante', displayValue(request.responsavel), 'E-mail', request.requester.email);
+  row('Telefone', displayValue(request.telefone), 'Protocolo / O.S.', request.protocol);
   move(10);
 
   section('Dados do equipamento');
-  row('Equipamento', request.tipoAparelho, 'Marca', request.marca);
-  row('Modelo', request.modelo, 'Serial / IMEI', request.serial);
-  fullRow('Problema informado', request.problema);
+  row('Equipamento', displayValue(request.tipoAparelho), 'Marca', displayValue(request.marca));
+  row('Modelo', displayValue(request.modelo), 'Serial / IMEI', displayValue(request.serial));
+  fullRow('Problema informado', displayValue(request.problema));
   move(10);
 
   section('Itens do orçamento');
@@ -98,7 +100,7 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
   move(18);
   text(`Portal: ${portalUrl}`, margin, 8, regular, gray);
   move(14);
-  text('Documento gerado pelo Portal MD Comercio e Servicos', margin, 8, regular, gray);
+  text('Documento gerado pelo Portal MD Comércio e Serviços', margin, 8, regular, gray);
   move(14);
   text('A aprovação deste orçamento autoriza a execução dos serviços descritos.', margin, 8, regular, gray);
 
@@ -131,35 +133,36 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
     ensure(26);
     page.drawRectangle({ x: margin, y: y - 6, width: 515, height: 20, color: blue });
     page.drawText('Item', { x: margin + 5, y, size: 8, font: bold, color: rgb(1, 1, 1) });
-    page.drawText('Servico / Peca', { x: margin + 34, y, size: 8, font: bold, color: rgb(1, 1, 1) });
+    page.drawText('Serviço / Peça', { x: margin + 34, y, size: 8, font: bold, color: rgb(1, 1, 1) });
     page.drawText('Qtd.', { x: 368, y, size: 8, font: bold, color: rgb(1, 1, 1) });
-    page.drawText('Unitario', { x: 420, y, size: 8, font: bold, color: rgb(1, 1, 1) });
+    page.drawText('Unitário', { x: 420, y, size: 8, font: bold, color: rgb(1, 1, 1) });
     page.drawText('Total', { x: 500, y, size: 8, font: bold, color: rgb(1, 1, 1) });
     move(26);
   }
 }
 
 function quoteStatusLabel(status: string) {
-  if (status === 'ENVIADO') return 'Aguardando aprovacao';
+  if (status === 'ENVIADO') return 'Aguardando aprovação';
   if (status === 'APROVADO') return 'Aprovado';
   if (status === 'RECUSADO') return 'Reprovado';
-  return status;
+  return status.replace(/_/g, ' ').toLowerCase();
 }
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat('pt-BR').format(date);
 }
 
+function displayValue(value: string | null | undefined) {
+  const normalized = String(value ?? '').trim();
+  return normalized && normalized !== '0' ? normalized : '-';
+}
+
 function safe(value: string) {
   return String(value ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .replace(/[–—]/g, '-')
-    .replace(/º/g, 'o')
-    .replace(/ª/g, 'a')
-    .replace(/[^\x20-\x7E]/g, '');
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[^\x20-\x7E\u00A0-\u00FF]/g, '');
 }
 
 function trim(value: string, length: number) {

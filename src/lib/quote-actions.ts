@@ -36,10 +36,10 @@ export async function createQuoteWithFeedbackAction(_previousState: ActionState,
     if (!canManageMd(user.role)) return { status: 'error', message: 'Acesso negado.' };
 
     await createQuoteRecord(form, user.id);
-    return { status: 'success', message: 'Orcamento gerado com sucesso. Use o botao Reenviar PDF por e-mail para enviar ao cliente.' };
+    return { status: 'success', message: 'Orçamento gerado com sucesso. Use o botão Reenviar PDF por e-mail para enviar ao cliente.' };
   } catch (error) {
-    console.error('[quote] Falha ao gerar orcamento', { requestId, error: errorMessage(error) });
-    return { status: 'error', message: 'Nao foi possivel gerar o orcamento. Verifique os dados e tente novamente.' };
+    console.error('[quote] Falha ao gerar orçamento', { requestId, error: errorMessage(error) });
+    return { status: 'error', message: 'Não foi possível gerar o orçamento. Verifique os dados e tente novamente.' };
   }
 }
 
@@ -52,12 +52,12 @@ export async function resendLatestQuotePdfAction(_previousState: ActionState, fo
 
     const quote = await findLatestQuote(requestId);
     const recipients = await quoteRecipients(quote);
-    const delivery = await sendQuotePdfEmail(quote, recipients, user.id, 'PDF do orcamento reenviado por e-mail.');
+    const delivery = await sendQuotePdfEmail(quote, recipients, user.id, 'PDF do orçamento reenviado por e-mail.');
     revalidatePath(`/requests/${requestId}`);
     return deliveryState('PDF reenviado', delivery);
   } catch (error) {
-    console.error('[quote] Falha ao reenviar PDF do orcamento', { requestId, error: errorMessage(error) });
-    return { status: 'error', message: 'Nao foi possivel reenviar o PDF do orcamento. Verifique os logs de notificacao na ordem de servico.' };
+    console.error('[quote] Falha ao reenviar PDF do orçamento', { requestId, error: errorMessage(error) });
+    return { status: 'error', message: 'Não foi possível reenviar o PDF do orçamento. Verifique os logs de notificação na ordem de serviço.' };
   }
 }
 
@@ -65,7 +65,7 @@ async function createQuoteRecord(form: FormData, userId: string) {
   const requestId = text(form, 'requestId');
   const current = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId }, include: { company: true, requester: true } });
   const selectedIds = form.getAll('serviceCatalogId').map((value) => String(value)).filter(Boolean);
-  if (selectedIds.length === 0) throw new Error('Selecione pelo menos um servico para criar o orcamento.');
+  if (selectedIds.length === 0) throw new Error('Selecione pelo menos um serviço para criar o orçamento.');
 
   const services = await prisma.serviceCatalog.findMany({ where: { id: { in: selectedIds }, active: true } });
   const serviceById = new Map(services.map((service) => [service.id, service]));
@@ -77,7 +77,7 @@ async function createQuoteRecord(form: FormData, userId: string) {
     return { service, quantity, unitCents };
   }).filter((item): item is SelectedQuoteItem => Boolean(item));
 
-  if (items.length === 0) throw new Error('Nenhum servico ativo foi encontrado para o orcamento.');
+  if (items.length === 0) throw new Error('Nenhum serviço ativo foi encontrado para o orçamento.');
 
   const subtotalCents = items.reduce((sum, item) => sum + item.quantity * item.unitCents, 0);
   const discountCents = Math.min(subtotalCents, Math.max(0, moneyToCents(text(form, 'discountValue'))));
@@ -91,7 +91,7 @@ async function createQuoteRecord(form: FormData, userId: string) {
     data: {
       serviceRequestId: requestId,
       quoteNumber: nextQuoteNumber(current.protocol),
-      title: `Orcamento ${current.protocol}`,
+      title: `Orçamento ${current.protocol}`,
       description: notes || null,
       status: QuoteStatus.ENVIADO,
       subtotalCents,
@@ -110,7 +110,7 @@ async function createQuoteRecord(form: FormData, userId: string) {
     where: { id: requestId },
     data: {
       currentStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO,
-      statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: userId, note: `Orcamento criado: ${quote.quoteNumber}` } }
+      statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: userId, note: `Orçamento criado: ${quote.quoteNumber}` } }
     }
   });
   await audit(userId, 'QUOTE_CREATED', 'Quote', quote.id, { quoteNumber: quote.quoteNumber, subtotalCents, discountCents, totalCents, emailDeferred: true });
@@ -124,7 +124,7 @@ async function findLatestQuote(requestId: string) {
     orderBy: { createdAt: 'desc' }
   });
 
-  if (!quote) throw new Error('Nenhum orcamento encontrado para esta solicitacao.');
+  if (!quote) throw new Error('Nenhum orçamento encontrado para esta solicitação.');
   return quote;
 }
 
@@ -147,17 +147,17 @@ async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], ch
   const request = quote.serviceRequest;
   const requestUrl = `${appUrl()}/requests/${request.id}`;
   console.info('[quote] { etapa: generate_pdf_start }', { requestId: request.id, quoteId: quote.id, protocol: request.protocol });
-  const pdfBytes = await withTimeout(generateQuotePdf({ quote, request, portalUrl: requestUrl }), 15000, 'Nao foi possivel gerar o PDF do orcamento.');
+  const pdfBytes = await withTimeout(generateQuotePdf({ quote, request, portalUrl: requestUrl }), 15000, 'Não foi possível gerar o PDF do orçamento.');
   console.info('[quote] { etapa: generate_pdf_done }', { requestId: request.id, quoteId: quote.id, protocol: request.protocol, pdfBytes: pdfBytes.length });
 
-  const subject = `Orcamento disponivel para aprovacao - ${request.protocol}`;
+  const subject = `Orçamento disponível para aprovação - ${request.protocol}`;
   const body = [
     `Protocolo: ${request.protocol}`,
     `Empresa: ${request.company.name}`,
     `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`,
     `Valor total: ${formatMoney(quote.totalCents)}`,
     `Acesse o portal para aprovar ou reprovar: ${requestUrl}`,
-    'O PDF padronizado do orcamento esta anexado a este e-mail.'
+    'O PDF padronizado do orçamento está anexado a este e-mail.'
   ].join('\n');
   const fallbackBody = [
     `Protocolo: ${request.protocol}`,
@@ -165,9 +165,9 @@ async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], ch
     `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`,
     `Valor total: ${formatMoney(quote.totalCents)}`,
     `Acesse o portal para aprovar ou reprovar: ${requestUrl}`,
-    'O PDF foi gerado, mas o envio com anexo falhou. Acesse o portal para consultar o orcamento.'
+    'O PDF foi gerado, mas o envio com anexo falhou. Acesse o portal para consultar o orçamento.'
   ].join('\n');
-  const attachment = { filename: `orcamento-${cleanFileName(request.protocol)}.pdf`, content: Buffer.from(pdfBytes).toString('base64') };
+  const attachment = { filename: quotePdfFileName(quote), content: Buffer.from(pdfBytes).toString('base64') };
 
   console.info('[quote] { etapa: send_email_start }', { requestId: request.id, quoteId: quote.id, protocol: request.protocol, recipients: recipients.length });
   const results = await Promise.all(recipients.map(async (recipient) => {
@@ -175,12 +175,12 @@ async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], ch
       await notifications.email({ serviceRequestId: request.id, recipient, subject, body, attachments: [attachment] });
       return { recipient, sent: true, fallback: false };
     } catch (error) {
-      console.error('[quote] Falha ao enviar PDF anexado do orcamento', { requestId: request.id, quoteId: quote.id, protocol: request.protocol, recipient, error: errorMessage(error) });
+      console.error('[quote] Falha ao enviar PDF anexado do orçamento', { requestId: request.id, quoteId: quote.id, protocol: request.protocol, recipient, error: errorMessage(error) });
       try {
         await notifications.email({ serviceRequestId: request.id, recipient, subject: `${subject} - sem anexo`, body: fallbackBody });
         return { recipient, sent: true, fallback: true };
       } catch (fallbackError) {
-        console.error('[quote] Falha ao enviar fallback sem anexo do orcamento', { requestId: request.id, quoteId: quote.id, protocol: request.protocol, recipient, error: errorMessage(fallbackError) });
+        console.error('[quote] Falha ao enviar fallback sem anexo do orçamento', { requestId: request.id, quoteId: quote.id, protocol: request.protocol, recipient, error: errorMessage(fallbackError) });
         return { recipient, sent: false, fallback: false };
       }
     }
@@ -197,7 +197,7 @@ async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], ch
       fromStatus: request.currentStatus,
       toStatus: request.currentStatus,
       changedById,
-      note: sent > 0 ? (fallbackSent > 0 ? `Orcamento enviado por e-mail para ${sent} destinatario(s); ${fallbackSent} sem anexo.` : historyNote) : 'Orcamento criado, mas o envio do PDF por e-mail falhou.'
+      note: sent > 0 ? (fallbackSent > 0 ? `Orçamento enviado por e-mail para ${sent} destinatário(s); ${fallbackSent} sem anexo.` : historyNote) : 'Orçamento criado, mas o envio do PDF por e-mail falhou.'
     }
   });
 
@@ -206,12 +206,12 @@ async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], ch
 
 function deliveryState(prefix: string, delivery: DeliveryResult): ActionState {
   if (delivery.totalRecipients === 0) {
-    return { status: 'warning', message: `${prefix}, mas nao ha destinatario com e-mail cadastrado. Cadastre e-mail na empresa ou ative um cliente com e-mail.` };
+    return { status: 'warning', message: `${prefix}, mas não há destinatário com e-mail cadastrado. Cadastre e-mail na empresa ou ative um cliente com e-mail.` };
   }
-  if (delivery.sent > 0 && delivery.failed === 0 && delivery.fallbackSent === 0) return { status: 'success', message: `${prefix} e enviado com PDF anexado para ${delivery.sent} destinatario(s).` };
-  if (delivery.sent > 0 && delivery.failed === 0) return { status: 'warning', message: `${prefix}. E-mail enviado para ${delivery.sent} destinatario(s), mas ${delivery.fallbackSent} receberam mensagem sem anexo.` };
-  if (delivery.sent > 0) return { status: 'warning', message: `${prefix}. Enviado para ${delivery.sent} destinatario(s), com falha para ${delivery.failed}.` };
-  return { status: 'warning', message: `${prefix}, mas o e-mail nao foi enviado. Veja os logs de notificacao na ordem de servico.` };
+  if (delivery.sent > 0 && delivery.failed === 0 && delivery.fallbackSent === 0) return { status: 'success', message: `${prefix} e enviado com PDF anexado para ${delivery.sent} destinatário(s).` };
+  if (delivery.sent > 0 && delivery.failed === 0) return { status: 'warning', message: `${prefix}. E-mail enviado para ${delivery.sent} destinatário(s), mas ${delivery.fallbackSent} receberam mensagem sem anexo.` };
+  if (delivery.sent > 0) return { status: 'warning', message: `${prefix}. Enviado para ${delivery.sent} destinatário(s), com falha para ${delivery.failed}.` };
+  return { status: 'warning', message: `${prefix}, mas o e-mail não foi enviado. Veja os logs de notificação na ordem de serviço.` };
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
@@ -252,8 +252,12 @@ function normalizeEmail(value: string | null | undefined) {
   return String(value ?? '').trim().toLowerCase();
 }
 
+function quotePdfFileName(quote: Quote) {
+  return `ORÇAMENTO - ${cleanFileName(quote.quoteNumber ?? quote.id)}.pdf`;
+}
+
 function cleanFileName(value: string) {
-  return value.replace(/[^a-zA-Z0-9_.-]/g, '-');
+  return value.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
 }
 
 function errorMessage(error: unknown) {
