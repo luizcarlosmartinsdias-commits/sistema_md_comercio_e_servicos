@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { AttachmentType, QuoteStatus, ServiceRequestStatus, type ServiceCatalog } from '@prisma/client';
+import {
+  QuoteStatus,
+  ServiceRequestStatus,
+  type Company,
+  type Quote,
+  type QuoteItem,
+  type ServiceCatalog,
+  type ServiceRequest,
+  type User
+} from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { audit } from '@/lib/audit';
 import { formatMoney } from '@/lib/format';
@@ -8,7 +17,6 @@ import { generateQuotePdf } from '@/lib/quote-pdf';
 import { prisma } from '@/lib/prisma';
 import { canManageMd, clientRoleFilter } from '@/lib/rbac';
 import { NotificationService } from '@/lib/services/notification';
-import { StorageService } from '@/lib/services/storage';
 
 type QuoteItemInput = { serviceCatalogId: string; quantity: number; unitValue: string };
 type CreateQuoteInput = {
@@ -21,6 +29,8 @@ type CreateQuoteInput = {
   notes?: string;
 };
 type SelectedQuoteItem = { service: ServiceCatalog; quantity: number; unitCents: number };
+type EmailRequest = ServiceRequest & { company: Company; requester: User };
+type EmailQuote = Quote & { items?: QuoteItem[] };
 
 const notifications = new NotificationService(prisma);
 const appUrl = () => (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? 'http://localhost:3000').replace(/\/$/, '');
@@ -28,11 +38,12 @@ const appUrl = () => (process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? 'http:/
 export async function POST(request: Request) {
   let requestId = '';
   let quoteId: string | undefined;
+  let protocol: string | undefined;
 
   try {
     console.info('[quote-api]', { etapa: 'submit_form' });
     const session = await getServerSession(authOptions);
-    if (!session?.user?.id) return jsonError('Sessão expirada. Faça login novamente.', 401);
+    if (!session?.user?.id) return jsonError('Sessao expirada. Faca login novamente.', 401);
 
     const user = await prisma.user.findUnique({ where: { id: session.user.id } });
     if (!user?.active || !canManageMd(user.role)) return jsonError('Acesso negado.', 403);
@@ -50,10 +61,11 @@ export async function POST(request: Request) {
       unitValues: receivedServices.map((service) => service.unitValue)
     });
 
-    if (!requestId) return jsonError('Solicitação inválida.', 400);
-    if (serviceIds.length === 0) return jsonError('Selecione pelo menos um serviço.', 400);
+    if (!requestId) return jsonError('Solicitacao invalida.', 400);
+    if (serviceIds.length === 0) return jsonError('Selecione pelo menos um servico.', 400);
 
     const current = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId }, include: { company: true, requester: true } });
+    protocol = current.protocol;
     const services = await prisma.serviceCatalog.findMany({ where: { id: { in: serviceIds }, active: true } });
     const serviceById = new Map(services.map((service) => [service.id, service]));
     const items = receivedServices.map((item) => {
@@ -65,7 +77,7 @@ export async function POST(request: Request) {
       return { service, quantity, unitCents };
     }).filter((item): item is SelectedQuoteItem => Boolean(item));
 
-    if (items.length === 0) return jsonError('Selecione pelo menos um serviço.', 400);
+    if (items.length === 0) return jsonError('Selecione pelo menos um servico.', 400);
 
     const subtotalCents = items.reduce((sum, item) => sum + item.quantity * item.unitCents, 0);
     const discountCents = Math.min(subtotalCents, Math.max(0, moneyToCents(String(input.discountValue ?? ''))));
@@ -75,12 +87,12 @@ export async function POST(request: Request) {
     const warrantyDays = positiveInt(input.warrantyDays, 90);
     const executionDeadlineDays = positiveInt(input.executionDeadlineDays, 5);
 
-    console.info('[quote-api]', { etapa: 'create_quote', requestId, serviceIds, totalCents });
+    console.info('[quote-api]', { etapa: 'create_quote', requestId, serviceIds, totalCents, protocol });
     const quote = await prisma.quote.create({
       data: {
         serviceRequestId: requestId,
         quoteNumber: nextQuoteNumber(current.protocol),
-        title: `Orçamento ${current.protocol}`,
+        title: `Orcamento ${current.protocol}`,
         description: notes || null,
         status: QuoteStatus.ENVIADO,
         subtotalCents,
@@ -100,62 +112,59 @@ export async function POST(request: Request) {
       where: { id: requestId },
       data: {
         currentStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO,
-        statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: `Orçamento criado: ${quote.quoteNumber}` } }
+        statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: `Orcamento criado: ${quote.quoteNumber}` } }
       }
     });
     await audit(user.id, 'QUOTE_CREATED', 'Quote', quote.id, { quoteNumber: quote.quoteNumber, subtotalCents, discountCents, totalCents });
 
     try {
-      console.info('[quote-api]', { etapa: 'generate_pdf', requestId, quoteId });
-      const pdfBytes = await withTimeout(generateQuotePdf({ quote, request: current, portalUrl: `${appUrl()}/requests/${requestId}` }), 10000, 'Tempo limite ao gerar PDF.');
-      const pdfFileName = `${quote.quoteNumber ?? quote.id}.pdf`;
-      const storedPdf = await StorageService.saveBytes(pdfBytes, requestId, pdfFileName, 'application/pdf');
-      const pdfAttachment = await prisma.attachment.create({ data: { serviceRequestId: requestId, uploadedById: user.id, type: AttachmentType.ORCAMENTO, ...storedPdf } });
-      await prisma.quote.update({ where: { id: quote.id }, data: { pdfAttachmentId: pdfAttachment.id } });
+      console.info('[quote-api]', { etapa: 'generate_pdf_start', requestId, quoteId, protocol });
+      const pdfBytes = await withTimeout(generateQuotePdf({ quote, request: current, portalUrl: `${appUrl()}/requests/${requestId}` }), 15000, 'Nao foi possivel gerar o PDF do orcamento.');
+      console.info('[quote-api]', { etapa: 'generate_pdf_done', requestId, quoteId, protocol, pdfBytes: pdfBytes.length });
 
-      const delivery = await withTimeout(sendQuoteEmail({ request: current, quote: { ...quote, pdfAttachment }, pdfBytes }), 10000, 'Tempo limite ao enviar e-mail do orçamento.');
+      const delivery = await withTimeout(sendQuoteEmail({ request: current, quote, pdfBytes }), 15000, 'Tempo limite ao enviar e-mail do orcamento.');
       if (delivery.sent > 0 && delivery.failed === 0 && delivery.fallbackSent === 0) {
-        return NextResponse.json({ status: 'success', message: 'Orçamento criado e enviado ao cliente por e-mail.', quoteId: quote.id });
+        return NextResponse.json({ success: true, status: 'success', message: 'Orcamento criado e enviado ao cliente por e-mail.', quoteId: quote.id });
       }
       if (delivery.sent > 0) {
-        return NextResponse.json({ status: 'warning', message: 'Orçamento criado, mas o e-mail foi enviado com aviso. Confira os logs de notificação.', quoteId: quote.id });
+        return NextResponse.json({ success: false, status: 'warning', etapa: 'send_email', message: 'PDF gerado, mas houve falha ao enviar o e-mail para todos os destinatarios.', quoteId: quote.id });
       }
-      return NextResponse.json({ status: 'warning', message: 'Orçamento criado, mas não foi possível gerar/enviar o PDF.', quoteId: quote.id });
+      return NextResponse.json({ success: false, status: 'warning', etapa: 'send_email', message: 'PDF gerado, mas houve falha ao enviar o e-mail.', quoteId: quote.id });
     } catch (error) {
-      console.error('[quote-api]', { etapa: 'generate_pdf', requestId, quoteId, error: errorMessage(error) });
-      await prisma.serviceRequestStatusHistory.create({ data: { serviceRequestId: requestId, fromStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: 'Orçamento criado, mas houve falha ao gerar/enviar o PDF.' } });
-      return NextResponse.json({ status: 'warning', message: 'Orçamento criado, mas não foi possível gerar/enviar o PDF.', quoteId: quote.id });
+      const etapa = errorMessage(error).includes('gerar') ? 'generate_pdf' : 'send_email';
+      console.error('[quote-api]', { etapa, requestId, quoteId, protocol, error: errorMessage(error) });
+      await prisma.serviceRequestStatusHistory.create({ data: { serviceRequestId: requestId, fromStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: etapa === 'generate_pdf' ? 'Orcamento criado, mas houve falha ao gerar o PDF.' : 'PDF gerado, mas houve falha ao enviar o e-mail.' } });
+      return NextResponse.json({ success: false, status: 'warning', etapa, message: etapa === 'generate_pdf' ? 'Orcamento criado, mas nao foi possivel gerar o PDF.' : 'PDF gerado, mas houve falha ao enviar o e-mail.', quoteId: quote.id });
     }
   } catch (error) {
-    console.error('[quote-api]', { etapa: quoteId ? 'unexpected_after_quote' : 'create_quote', requestId, quoteId, error: errorMessage(error) });
-    return jsonError('Não foi possível criar o orçamento. Tente novamente.', 500);
+    console.error('[quote-api]', { etapa: quoteId ? 'unexpected_after_quote' : 'create_quote', requestId, quoteId, protocol, error: errorMessage(error) });
+    return jsonError('Nao foi possivel criar o orcamento. Tente novamente.', 500);
   }
 }
 
-async function sendQuoteEmail({ request, quote, pdfBytes }: { request: Awaited<ReturnType<typeof prisma.serviceRequest.findUniqueOrThrow>> & { company: { email: string | null; name: string }; requester: { email: string } }; quote: { id: string; quoteNumber: string | null; totalCents: number; pdfAttachment?: { id: string } | null }; pdfBytes: Uint8Array }) {
-  console.info('[quote-api]', { etapa: 'send_email', requestId: request.id, quoteId: quote.id });
+async function sendQuoteEmail({ request, quote, pdfBytes }: { request: EmailRequest; quote: EmailQuote; pdfBytes: Uint8Array }) {
+  console.info('[quote-api]', { etapa: 'send_email_start', requestId: request.id, quoteId: quote.id, protocol: request.protocol });
   const clients = await prisma.user.findMany({ where: { companyId: request.companyId, role: clientRoleFilter(), active: true }, select: { email: true } });
   const recipients = uniqueEmails([...clients.map((client) => client.email), request.company.email, request.requester.email]);
   if (recipients.length === 0) return { sent: 0, failed: 0, fallbackSent: 0 };
 
   const requestUrl = `${appUrl()}/requests/${request.id}`;
-  const pdfUrl = quote.pdfAttachment ? `${appUrl()}/api/attachments/${quote.pdfAttachment.id}` : requestUrl;
-  const subject = `Orçamento disponível para aprovação - ${request.protocol}`;
-  const body = [`Protocolo: ${request.protocol}`, `Empresa: ${request.company.name}`, `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`, `Valor total: ${formatMoney(quote.totalCents)}`, `Acesse o portal para aprovar ou reprovar: ${requestUrl}`, `Link direto para baixar o PDF: ${pdfUrl}`, 'O PDF padronizado do orçamento está anexado a este e-mail.'].join('\n');
-  const fallbackBody = [`Protocolo: ${request.protocol}`, `Empresa: ${request.company.name}`, `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`, `Valor total: ${formatMoney(quote.totalCents)}`, `Acesse o portal para aprovar ou reprovar: ${requestUrl}`, `Baixe o PDF do orçamento neste link: ${pdfUrl}`, 'O envio com anexo falhou, por isso este e-mail foi enviado com o link do PDF.'].join('\n');
-  const attachment = { filename: `${quote.quoteNumber ?? quote.id}.pdf`, content: Buffer.from(pdfBytes).toString('base64') };
+  const subject = `Orcamento disponivel para aprovacao - ${request.protocol}`;
+  const body = [`Protocolo: ${request.protocol}`, `Empresa: ${request.company.name}`, `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`, `Valor total: ${formatMoney(quote.totalCents)}`, `Acesse o portal para aprovar ou reprovar: ${requestUrl}`, 'O PDF padronizado do orcamento esta anexado a este e-mail.'].join('\n');
+  const fallbackBody = [`Protocolo: ${request.protocol}`, `Empresa: ${request.company.name}`, `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`, `Valor total: ${formatMoney(quote.totalCents)}`, `Acesse o portal para aprovar ou reprovar: ${requestUrl}`, 'O PDF foi gerado, mas o envio com anexo falhou. Acesse o portal para consultar o orcamento.'].join('\n');
+  const attachment = { filename: `orcamento-${cleanFileName(request.protocol)}.pdf`, content: Buffer.from(pdfBytes).toString('base64') };
 
   const results = await Promise.all(recipients.map(async (recipient) => {
     try {
       await notifications.email({ serviceRequestId: request.id, recipient, subject, body, attachments: [attachment] });
       return { sent: true, fallback: false };
     } catch (error) {
-      console.error('[quote-api]', { etapa: 'send_email', requestId: request.id, quoteId: quote.id, recipient, error: errorMessage(error) });
+      console.error('[quote-api]', { etapa: 'send_email', requestId: request.id, quoteId: quote.id, protocol: request.protocol, recipient, error: errorMessage(error) });
       try {
-        await notifications.email({ serviceRequestId: request.id, recipient, subject: `${subject} - link do PDF`, body: fallbackBody });
+        await notifications.email({ serviceRequestId: request.id, recipient, subject: `${subject} - sem anexo`, body: fallbackBody });
         return { sent: true, fallback: true };
       } catch (fallbackError) {
-        console.error('[quote-api]', { etapa: 'send_email', requestId: request.id, quoteId: quote.id, recipient, error: errorMessage(fallbackError) });
+        console.error('[quote-api]', { etapa: 'send_email', requestId: request.id, quoteId: quote.id, protocol: request.protocol, recipient, error: errorMessage(fallbackError) });
         return { sent: false, fallback: false };
       }
     }
@@ -164,12 +173,13 @@ async function sendQuoteEmail({ request, quote, pdfBytes }: { request: Awaited<R
   const sent = results.filter((result) => result.sent).length;
   const failed = results.length - sent;
   const fallbackSent = results.filter((result) => result.fallback).length;
-  await prisma.serviceRequestStatusHistory.create({ data: { serviceRequestId: request.id, fromStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: request.requesterId, note: sent > 0 ? `Orçamento enviado por e-mail para ${sent} destinatário(s).` : 'Orçamento criado, mas o envio do PDF por e-mail falhou.' } });
+  await prisma.serviceRequestStatusHistory.create({ data: { serviceRequestId: request.id, fromStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: request.requesterId, note: sent > 0 ? `Orcamento enviado por e-mail para ${sent} destinatario(s).` : 'Orcamento criado, mas o envio do PDF por e-mail falhou.' } });
+  console.info('[quote-api]', { etapa: 'send_email_done', requestId: request.id, quoteId: quote.id, protocol: request.protocol, sent, failed, fallbackSent });
   return { sent, failed, fallbackSent };
 }
 
 function jsonError(message: string, status: number) {
-  return NextResponse.json({ status: 'error', message }, { status });
+  return NextResponse.json({ success: false, status: 'error', message }, { status });
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
@@ -204,6 +214,10 @@ function nextQuoteNumber(protocol: string) {
 
 function uniqueEmails(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.map((value) => String(value ?? '').trim().toLowerCase()).filter((value) => value.includes('@'))));
+}
+
+function cleanFileName(value: string) {
+  return value.replace(/[^a-zA-Z0-9_.-]/g, '-');
 }
 
 function errorMessage(error: unknown) {
