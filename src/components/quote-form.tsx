@@ -19,7 +19,7 @@ export function QuoteForm({ requestId, services }: { requestId: string; services
   const messageClass = state.status === 'success' ? 'text-green-700' : state.status === 'warning' ? 'text-amber-700' : 'text-red-600';
 
   return (
-    <form action={formAction} encType="multipart/form-data" className="mt-6 grid gap-4">
+    <form action={formAction} className="mt-6 grid gap-4">
       <input type="hidden" name="requestId" value={requestId} />
       <div>
         <h3 className="text-sm font-semibold">Criar orçamento</h3>
@@ -38,7 +38,6 @@ export function QuoteForm({ requestId, services }: { requestId: string; services
         <input name="warrantyDays" type="number" min="1" defaultValue="90" placeholder="Garantia em dias" />
       </div>
       <textarea name="notes" placeholder="Observação do orçamento" />
-      <input name="file" type="file" />
       {state.message ? <p className={`text-sm ${messageClass}`} role="status">{state.message}</p> : null}
       <SubmitButton disabled={services.length === 0} />
     </form>
