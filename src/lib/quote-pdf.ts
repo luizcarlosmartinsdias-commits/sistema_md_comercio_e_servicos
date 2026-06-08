@@ -12,14 +12,13 @@ const mdCompany = {
   address: 'Rua Arpoador, 75 - Areal - Araruama/RJ - CEP 28976-366'
 };
 
-const logoPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAYAAABV7bNHAAAACXBIWXMAAAsTAAALEwEAmpwYAAABRUlEQVR4nO2YMU7DQBBF39GkIChogQpH4Ah0gAqXoKChSgqOgQ6QkKAgoQKJYYL8RDJZ2U7s7N2P6p5ZtiXb3Z2d2WcAAAAAAAAA4J8n0zQdG2OMbZ7n6bqusxACoKoqj8MwmMvl9vt9z2az+fM8P8/zfJ7n+fV6fQchBCFE0XUdgNls9nEcxzAMwzRN02Kx+H6/3+93u93u0tJSLBYLwzAMGYYhSZJcW1vL5XL5arW6Uqk8k8mEw+Hw4XBYaWkpq9XK5XJ5cHCwWCw+Go2+2+2m0+m8Xi8/Pz86nQ6n0+n5+fnk8/lwOJw4HE4kEgnP8+Tz+WQymUwmk8vl8sLCQjqdDgCA3W5nMpm8vb3V6/WWy+V6vd7tdvvn8/nc3Nz0ej0AANfr9e12+8fHh9ls9uTk5Kqqqg4ODqLRaAAAuVwul8vl+vr6KioqzGYzAIBOp9Pp9KqqqnK5XAAAJpNJp9Pp8vLyAADRaDRdXV2+vr7u7u6kUilBEIQgCHr9fr/fHwAAAAD8G+0ByxKk1cUZFqYAAAAASUVORK5CYII=';
-
 export async function generateQuotePdf({ quote, request, portalUrl }: { quote: QuoteWithItems; request: RequestWithRelations; portalUrl: string }) {
+  console.info('[quote-pdf]', { etapa: 'generate_pdf_start', quoteId: quote.id, requestId: request.id, protocol: request.protocol });
+
   const pdf = await PDFDocument.create();
   let page = pdf.addPage([595.28, 841.89]);
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const logo = await pdf.embedPng(Buffer.from(logoPngBase64, 'base64'));
   const blue = rgb(0.02, 0.21, 0.52);
   const black = rgb(0.08, 0.1, 0.16);
   const gray = rgb(0.36, 0.4, 0.47);
@@ -39,33 +38,35 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
   };
   const rule = () => page.drawLine({ start: { x: margin, y }, end: { x: 555, y }, thickness: 0.8, color: line });
 
-  page.drawImage(logo, { x: margin, y: y - 62, width: 112, height: 56 });
-  page.drawText(mdCompany.name, { x: 138, y: y - 8, size: 16, font: bold, color: blue });
-  page.drawText(`Razão Social: ${mdCompany.legalName}`, { x: 138, y: y - 28, size: 9, font: regular, color: black });
-  page.drawText(`CNPJ: ${mdCompany.document}`, { x: 138, y: y - 44, size: 9, font: regular, color: black });
-  page.drawText(`Endereço: ${mdCompany.address}`, { x: 138, y: y - 60, size: 8, font: regular, color: black });
+  console.info('[quote-pdf]', { etapa: 'draw_header_start', quoteId: quote.id, requestId: request.id });
+  drawSafeTextLogo();
+  page.drawText(mdCompany.name, { x: 158, y: y - 8, size: 16, font: bold, color: blue });
+  page.drawText(`Razão Social: ${mdCompany.legalName}`, { x: 158, y: y - 28, size: 9, font: regular, color: black });
+  page.drawText(`CNPJ: ${mdCompany.document}`, { x: 158, y: y - 44, size: 9, font: regular, color: black });
+  page.drawText(`Endereço: ${mdCompany.address}`, { x: 158, y: y - 60, size: 8, font: regular, color: black });
   move(92);
 
   page.drawText('ORÇAMENTO', { x: margin, y, size: 24, font: bold, color: blue });
-  page.drawText(`Nº: ${quote.quoteNumber ?? quote.id}`, { x: 350, y: y + 8, size: 10, font: bold, color: black });
-  page.drawText(`Emissão: ${formatDate(quote.createdAt)}`, { x: 350, y: y - 8, size: 9, font: regular, color: black });
+  page.drawText(`Nº do Orçamento: ${quote.quoteNumber ?? quote.id}`, { x: 318, y: y + 8, size: 9, font: bold, color: black });
+  page.drawText(`Data de Emissão: ${formatDate(quote.createdAt)}`, { x: 318, y: y - 8, size: 9, font: regular, color: black });
   move(22);
   rule();
   move(26);
 
-  section('Dados do cliente');
+  section('Dados do Cliente');
   row('Empresa / Cliente', request.company.name, 'CNPJ / CPF', request.company.document ?? '-');
   row('Solicitante', displayValue(request.responsavel), 'E-mail', request.requester.email);
-  row('Telefone', displayValue(request.telefone), 'Protocolo / O.S.', request.protocol);
+  row('Telefone', displayValue(request.telefone), 'Ordem de Serviço / Protocolo', request.protocol);
   move(10);
 
-  section('Dados do equipamento');
+  section('Dados do Equipamento');
   row('Equipamento', displayValue(request.tipoAparelho), 'Marca', displayValue(request.marca));
-  row('Modelo', displayValue(request.modelo), 'Serial / IMEI', displayValue(request.serial));
-  fullRow('Problema informado', displayValue(request.problema));
+  row('Modelo', displayValue(request.modelo), 'Nº de Série / IMEI', displayValue(request.serial));
+  fullRow('Defeito Informado', displayValue(request.problema));
   move(10);
 
-  section('Itens do orçamento');
+  console.info('[quote-pdf]', { etapa: 'draw_items_start', quoteId: quote.id, requestId: request.id, items: quote.items.length });
+  section('Itens do Orçamento');
   tableHeader();
   quote.items.forEach((item, index) => {
     ensure(28);
@@ -80,6 +81,7 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
   });
   move(8);
 
+  console.info('[quote-pdf]', { etapa: 'draw_totals_start', quoteId: quote.id, requestId: request.id });
   const subtotal = quote.subtotalCents || quote.totalCents + quote.discountCents;
   page.drawRectangle({ x: 338, y: y - 56, width: 217, height: 68, borderColor: line, borderWidth: 0.8 });
   page.drawText('Subtotal', { x: 352, y: y - 8, size: 10, font: regular, color: black });
@@ -92,7 +94,8 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
 
   section('Condições');
   row('Validade', `${quote.validityDays} dias`, 'Garantia', `${quote.warrantyDays} dias`);
-  row('Prazo de execução', `${quote.executionDeadlineDays} dias`, 'Status', quoteStatusLabel(quote.status));
+  row('Prazo de Execução', `${quote.executionDeadlineDays} dias`, 'Status', quoteStatusLabel(quote.status));
+  fullRow('Forma de Pagamento', 'Conforme negociação entre as partes.');
   if (quote.notes) fullRow('Observações', quote.notes);
 
   y = Math.max(y - 18, 72);
@@ -104,7 +107,23 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
   move(14);
   text('A aprovação deste orçamento autoriza a execução dos serviços descritos.', margin, 8, regular, gray);
 
-  return pdf.save();
+  const pdfBytes = await pdf.save();
+  console.info('[quote-pdf]', { etapa: 'generate_pdf_done', quoteId: quote.id, requestId: request.id, protocol: request.protocol, pdfBytes: pdfBytes.length });
+  return pdfBytes;
+
+  function drawSafeTextLogo() {
+    try {
+      console.info('[quote-pdf]', { etapa: 'load_logo_start', quoteId: quote.id, requestId: request.id });
+      page.drawRectangle({ x: margin, y: y - 64, width: 94, height: 58, borderColor: blue, borderWidth: 1.2, color: rgb(0.97, 0.99, 1) });
+      page.drawText('MD', { x: margin + 12, y: y - 42, size: 32, font: bold, color: blue });
+      page.drawLine({ start: { x: margin + 12, y: y - 52 }, end: { x: margin + 82, y: y - 52 }, thickness: 1, color: blue });
+      page.drawText('Comércio e Serviços', { x: margin + 8, y: y - 62, size: 6, font: regular, color: black });
+      console.info('[quote-pdf]', { etapa: 'load_logo_done', quoteId: quote.id, requestId: request.id });
+    } catch (error) {
+      console.error('[quote-pdf]', { etapa: 'load_logo_failed', quoteId: quote.id, requestId: request.id, error: errorMessage(error) });
+      page.drawText('MD Comércio e Serviços', { x: margin, y: y - 34, size: 14, font: bold, color: blue });
+    }
+  }
 
   function section(title: string) {
     ensure(38);
@@ -135,7 +154,7 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
     page.drawText('Item', { x: margin + 5, y, size: 8, font: bold, color: rgb(1, 1, 1) });
     page.drawText('Serviço / Peça', { x: margin + 34, y, size: 8, font: bold, color: rgb(1, 1, 1) });
     page.drawText('Qtd.', { x: 368, y, size: 8, font: bold, color: rgb(1, 1, 1) });
-    page.drawText('Unitário', { x: 420, y, size: 8, font: bold, color: rgb(1, 1, 1) });
+    page.drawText('Valor Unitário', { x: 410, y, size: 8, font: bold, color: rgb(1, 1, 1) });
     page.drawText('Total', { x: 500, y, size: 8, font: bold, color: rgb(1, 1, 1) });
     move(26);
   }
@@ -168,4 +187,8 @@ function safe(value: string) {
 function trim(value: string, length: number) {
   const clean = safe(value).replace(/\s+/g, ' ');
   return clean.length > length ? `${clean.slice(0, length - 3)}...` : clean;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Erro desconhecido';
 }
