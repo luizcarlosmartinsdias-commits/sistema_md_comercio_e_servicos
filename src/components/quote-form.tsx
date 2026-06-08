@@ -1,7 +1,7 @@
 'use client';
 
-import { useFormState, useFormStatus } from 'react-dom';
-import { createQuoteWithFeedbackAction } from '@/lib/quote-actions';
+import { FormEvent, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { ActionState } from '@/lib/actions';
 
 type ServiceOption = {
@@ -12,14 +12,71 @@ type ServiceOption = {
   defaultUnitCents: number;
 };
 
+type QuoteResponse = ActionState & { quoteId?: string };
+
 const initialState: ActionState = { status: 'idle', message: '' };
 
 export function QuoteForm({ requestId, services }: { requestId: string; services: ServiceOption[] }) {
-  const [state, formAction] = useFormState(createQuoteWithFeedbackAction, initialState);
+  const router = useRouter();
+  const [state, setState] = useState<ActionState>(initialState);
+  const [pending, setPending] = useState(false);
   const messageClass = state.status === 'success' ? 'text-green-700' : state.status === 'warning' ? 'text-amber-700' : 'text-red-600';
 
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+
+    const form = new FormData(event.currentTarget);
+    const selectedIds = form.getAll('serviceCatalogId').map((value) => String(value)).filter(Boolean);
+    if (selectedIds.length === 0) {
+      setState({ status: 'error', message: 'Selecione pelo menos um serviço.' });
+      return;
+    }
+
+    const payload = {
+      requestId,
+      services: selectedIds.map((serviceId) => ({
+        serviceCatalogId: serviceId,
+        quantity: Number(form.get(`quantity-${serviceId}`) || 1),
+        unitValue: String(form.get(`unitValue-${serviceId}`) ?? '')
+      })),
+      discountValue: String(form.get('discountValue') ?? ''),
+      validityDays: Number(form.get('validityDays') || 7),
+      executionDeadlineDays: Number(form.get('executionDeadlineDays') || 5),
+      warrantyDays: Number(form.get('warrantyDays') || 90),
+      notes: String(form.get('notes') ?? '')
+    };
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20000);
+    setPending(true);
+    setState({ status: 'idle', message: '' });
+
+    try {
+      const response = await fetch('/api/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      const data = await response.json().catch(() => null) as QuoteResponse | null;
+      if (!response.ok) {
+        setState({ status: 'error', message: data?.message || 'Não foi possível criar o orçamento. Tente novamente.' });
+        return;
+      }
+      setState({ status: data?.status || 'success', message: data?.message || 'Orçamento criado e enviado ao cliente por e-mail.' });
+      router.refresh();
+    } catch (error) {
+      const timedOut = error instanceof Error && error.name === 'AbortError';
+      setState({ status: 'error', message: timedOut ? 'Tempo limite ao criar orçamento. Tente novamente.' : 'Não foi possível criar o orçamento. Tente novamente.' });
+    } finally {
+      window.clearTimeout(timeout);
+      setPending(false);
+    }
+  }
+
   return (
-    <form action={formAction} className="mt-6 grid gap-4">
+    <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
       <input type="hidden" name="requestId" value={requestId} />
       <div>
         <h3 className="text-sm font-semibold">Criar orçamento</h3>
@@ -39,12 +96,7 @@ export function QuoteForm({ requestId, services }: { requestId: string; services
       </div>
       <textarea name="notes" placeholder="Observação do orçamento" />
       {state.message ? <p className={`text-sm ${messageClass}`} role="status">{state.message}</p> : null}
-      <SubmitButton disabled={services.length === 0} />
+      <button className="btn" type="submit" disabled={services.length === 0 || pending}>{pending ? 'Gerando orçamento...' : 'Criar orçamento'}</button>
     </form>
   );
-}
-
-function SubmitButton({ disabled }: { disabled: boolean }) {
-  const { pending } = useFormStatus();
-  return <button className="btn" type="submit" disabled={disabled || pending}>{pending ? 'Gerando PDF...' : 'Gerar PDF do orçamento'}</button>;
 }
