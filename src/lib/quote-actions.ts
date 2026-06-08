@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import {
   AttachmentType,
-  NotificationChannel,
   QuoteStatus,
   ServiceRequestStatus,
   type Company,
@@ -89,9 +88,6 @@ async function createQuoteRecord(form: FormData, userId: string) {
   const validityDays = positiveInt(text(form, 'validityDays'), 7);
   const warrantyDays = positiveInt(text(form, 'warrantyDays'), 90);
   const executionDeadlineDays = positiveInt(text(form, 'executionDeadlineDays'), 5);
-  let supportAttachmentId: string | undefined;
-  const file = form.get('file');
-  if (file instanceof File && file.size > 0) supportAttachmentId = (await saveAttachment(requestId, userId, file, AttachmentType.OUTRO)).id;
 
   const quote = await prisma.quote.create({
     data: {
@@ -107,7 +103,6 @@ async function createQuoteRecord(form: FormData, userId: string) {
       warrantyDays,
       executionDeadlineDays,
       notes: notes || null,
-      attachmentId: supportAttachmentId,
       items: { create: items.map(({ service, quantity, unitCents }) => ({ serviceCatalogId: service.id, description: `${service.name}: ${service.description}`, quantity, unitCents })) }
     },
     include: { items: true }
@@ -213,11 +208,6 @@ async function sendQuotePdfEmail(quote: QuoteWithItems, recipients: string[], ch
   });
 
   return { sent, failed, totalRecipients: recipients.length, recipients, fallbackSent };
-}
-
-async function saveAttachment(requestId: string, userId: string, file: File, type: AttachmentType) {
-  const stored = await StorageService.save(file, requestId);
-  return prisma.attachment.create({ data: { serviceRequestId: requestId, uploadedById: userId, type, ...stored } });
 }
 
 function deliveryState(prefix: string, delivery: DeliveryResult): ActionState {
