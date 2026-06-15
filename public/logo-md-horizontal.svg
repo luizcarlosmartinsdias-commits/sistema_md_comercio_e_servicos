@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 260" role="img" aria-label="MD Comércio e Serviços">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 260" role="img" aria-label="MD Comércio e Serviços">
   <defs>
     <linearGradient id="md-blue" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#0b86d8"/>
@@ -9,7 +9,7 @@
       <stop offset="1" stop-color="#1f2832"/>
     </linearGradient>
   </defs>
-  <rect width="1260" height="260" fill="none"/>
+  <rect width="1600" height="260" fill="none"/>
 
   <g transform="translate(38 38)">
     <path d="M0 172V12h58l115 127L288 12h58v160h-50V76l-101 108h-44L50 76v96H0z" fill="url(#md-blue)"/>
@@ -26,7 +26,7 @@
     </g>
   </g>
 
-  <text x="465" y="151" font-family="Arial, Helvetica, sans-serif" font-size="62" font-weight="800" fill="#202833">
+  <text x="560" y="151" font-family="Arial, Helvetica, sans-serif" font-size="62" font-weight="800" fill="#202833">
     <tspan fill="#0b63bd">MD</tspan><tspan> Comércio e Serviços</tspan>
   </text>
 </svg>
