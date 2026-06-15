@@ -21,10 +21,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
             <Link href="/dashboard" className="flex items-center gap-3" aria-label="Ir para o painel do Portal MD">
               <Image
-                src="/brand/logo-md-horizontal.png?v=1"
+                src="/brand/logo-topo.png?v=1"
                 alt="MD Comércio e Serviços"
-                width={64}
-                height={32}
+                width={640}
+                height={160}
                 priority
                 className="h-10 w-auto object-contain"
               />
