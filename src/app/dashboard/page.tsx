@@ -26,7 +26,7 @@ const views = [
 export default async function DashboardPage({ searchParams }: { searchParams?: { view?: string } }) {
   const user = await requireSessionUser();
   const admin = isAdmin(user.role);
-  const view = views.some((item) => item.key === searchParams?.view) ? searchParams?.view : 'resumo';
+  const view = views.some((item) => item.key === searchParams?.view) ? String(searchParams?.view) : 'resumo';
   let dataWarning: string | null = null;
   const now = new Date();
 
@@ -36,11 +36,11 @@ export default async function DashboardPage({ searchParams }: { searchParams?: {
     return [];
   };
 
-  const companies = admin ? await prisma.company.findMany({ orderBy: { createdAt: 'desc' } }).catch(captureDataError('empresas')) : [];
-  const clients = admin ? await prisma.user.findMany({ where: { role: clientRoleFilter() }, include: { company: true }, orderBy: { createdAt: 'desc' } }).catch(captureDataError('clientes')) : [];
-  const invitations = admin ? await prisma.invitationToken.findMany({ include: { company: true }, orderBy: { createdAt: 'desc' } }).catch(captureDataError('convites')) : [];
-  const services = admin ? await prisma.serviceCatalog.findMany({ orderBy: [{ active: 'desc' }, { createdAt: 'desc' }] }).catch(captureDataError('servicos')) : [];
-  const requests = await prisma.serviceRequest.findMany({ where: admin ? {} : { companyId: user.companyId ?? '__sem_empresa__' }, include: { company: true, requester: true, quotes: true }, orderBy: { createdAt: 'desc' } }).catch(captureDataError('solicitacoes'));
+  const companies = admin && ['resumo', 'empresas', 'clientes', 'convites'].includes(view) ? await prisma.company.findMany({ orderBy: { createdAt: 'desc' } }).catch(captureDataError('empresas')) : [];
+  const clients = admin && ['resumo', 'clientes'].includes(view) ? await prisma.user.findMany({ where: { role: clientRoleFilter() }, include: { company: true }, orderBy: { createdAt: 'desc' } }).catch(captureDataError('clientes')) : [];
+  const invitations = admin && ['resumo', 'convites'].includes(view) ? await prisma.invitationToken.findMany({ include: { company: true }, orderBy: { createdAt: 'desc' } }).catch(captureDataError('convites')) : [];
+  const services = admin && ['resumo', 'servicos'].includes(view) ? await prisma.serviceCatalog.findMany({ orderBy: [{ active: 'desc' }, { createdAt: 'desc' }] }).catch(captureDataError('servicos')) : [];
+  const requests = (!admin || ['resumo', 'solicitacoes'].includes(view)) ? await prisma.serviceRequest.findMany({ where: admin ? {} : { companyId: user.companyId ?? '__sem_empresa__' }, include: { company: true, requester: true, quotes: true }, orderBy: { createdAt: 'desc' } }).catch(captureDataError('solicitacoes')) : [];
 
   const pendingCollection = requests.filter((request) => request.currentStatus === 'AGUARDANDO_RECOLHIMENTO').length;
   const pendingApproval = requests.filter((request) => request.currentStatus === 'AGUARDANDO_APROVACAO').length;
