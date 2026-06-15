@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';
-import { BrandLogo } from '@/components/brand-logo';
 import { SignOutButton } from '@/components/sign-out-button';
 import { authOptions } from '@/lib/auth';
 import './globals.css';
@@ -20,7 +20,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <header className="border-b border-slate-200 bg-white">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
             <Link href="/dashboard" className="flex items-center gap-3" aria-label="Ir para o painel do Portal MD">
-              <BrandLogo className="h-12 w-auto" priority />
+              <Image
+                src="/brand/logo-md-horizontal.png?v=1"
+                alt="MD Comércio e Serviços"
+                width={64}
+                height={32}
+                priority
+                className="h-10 w-auto object-contain"
+              />
               <span className="sr-only">Portal MD Comércio e Serviços</span>
             </Link>
             {session?.user ? (
