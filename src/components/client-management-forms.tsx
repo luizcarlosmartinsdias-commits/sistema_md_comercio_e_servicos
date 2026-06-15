@@ -1,7 +1,8 @@
 'use client';
 
 import { useFormState, useFormStatus } from 'react-dom';
-import { deactivateClientAction, deleteClientAction, reactivateClientAction, updateClientAction } from '@/lib/actions';
+import { deactivateClientAction, reactivateClientAction, updateClientAction } from '@/lib/actions';
+import { deleteClientPermanentlyAction } from '@/lib/admin-delete-actions';
 import type { ActionState } from '@/lib/actions';
 
 type CompanyOption = { id: string; name: string };
@@ -13,7 +14,7 @@ export function ClientManagementForms({ client, companies }: { client: ClientIte
   const [editState, editAction] = useFormState(updateClientAction, initialState);
   const [deactivateState, deactivateAction] = useFormState(deactivateClientAction, initialState);
   const [reactivateState, reactivateAction] = useFormState(reactivateClientAction, initialState);
-  const [deleteState, deleteAction] = useFormState(deleteClientAction, initialState);
+  const [deleteState, deleteAction] = useFormState(deleteClientPermanentlyAction, initialState);
   const state = [editState, deactivateState, reactivateState, deleteState].find((item) => item.message) ?? initialState;
 
   return (
@@ -31,7 +32,9 @@ export function ClientManagementForms({ client, companies }: { client: ClientIte
       </form>
       <div className="flex flex-wrap gap-2">
         {client.active ? <form action={deactivateAction}><input type="hidden" name="clientId" value={client.id} /><SubmitButton label="Inativar cliente" pendingLabel="Inativando..." secondary /></form> : <form action={reactivateAction}><input type="hidden" name="clientId" value={client.id} /><SubmitButton label="Reativar cliente" pendingLabel="Reativando..." secondary /></form>}
-        <form action={deleteAction}><input type="hidden" name="clientId" value={client.id} /><SubmitButton label="Excluir cliente" pendingLabel="Excluindo..." secondary /></form>
+        <form action={deleteAction} onSubmit={(event) => {
+          if (!confirm(`Excluir definitivamente o cliente ${client.name}? Isso tambem remove solicitacoes, orcamentos, anexos e historicos vinculados.`)) event.preventDefault();
+        }}><input type="hidden" name="clientId" value={client.id} /><SubmitButton label="Excluir definitivamente" pendingLabel="Excluindo..." secondary /></form>
       </div>
     </div>
   );
