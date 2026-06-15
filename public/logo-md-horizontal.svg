@@ -14,7 +14,7 @@
   <g transform="translate(38 38)">
     <path d="M0 172V12h58l115 127L288 12h58v160h-50V76l-101 108h-44L50 76v96H0z" fill="url(#md-blue)"/>
 
-    <path d="M355 12h92c85 0 142 53 142 129s-57 129-142 129h-92V12zm89 210c56 0 93-32 93-81s-37-81-93-81h-39v162h39z" transform="translate(-10 -55) scale(.86)" fill="url(#md-dark)"/>
+    <path d="M355 12h92c85 0 142 53 142 129s-57 129-142 129h-92V12zm89 210c56 0 93-32 93-81s-37-81-93-81h-39v162h39z" transform="translate(58 0) scale(.67)" fill="url(#md-dark)"/>
 
     <g fill="none" stroke="#0b78c9" stroke-linecap="round" stroke-linejoin="round">
       <path d="M304 2v176" stroke-width="10"/>
