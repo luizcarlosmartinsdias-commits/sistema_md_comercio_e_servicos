@@ -24,6 +24,7 @@ export async function deleteClientPermanentlyAction(_previousState: ActionState,
       await deleteRequests(tx, { requesterId: clientId });
       await detachAndDeleteAttachmentsByUploader(tx, clientId);
       await tx.serviceRequestStatusHistory.deleteMany({ where: { changedById: clientId } });
+      await tx.invitationToken.deleteMany({ where: { createdById: clientId } });
       await tx.passwordResetToken.deleteMany({ where: { userId: clientId } });
       await tx.auditLog.deleteMany({ where: { userId: clientId } });
       await tx.user.delete({ where: { id: clientId } });
@@ -60,6 +61,7 @@ export async function deleteCompanyPermanentlyAction(_previousState: ActionState
 
       if (userIds.length > 0) {
         await tx.serviceRequestStatusHistory.deleteMany({ where: { changedById: { in: userIds } } });
+        await tx.invitationToken.deleteMany({ where: { createdById: { in: userIds } } });
         await tx.passwordResetToken.deleteMany({ where: { userId: { in: userIds } } });
         await tx.auditLog.deleteMany({ where: { userId: { in: userIds } } });
         await tx.user.deleteMany({ where: { id: { in: userIds } } });
