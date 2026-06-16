@@ -285,7 +285,7 @@ export async function updateStatusAction(form: FormData) {
   const status = text(form, 'status') as ServiceRequestStatus;
   const current = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
   await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: status, statusHistory: { create: { fromStatus: current.currentStatus, toStatus: status, changedById: user.id, note: text(form, 'note') || null } } } });
-  if ([ServiceRequestStatus.SERVICO_CONCLUIDO, ServiceRequestStatus.FINALIZADO].includes(status)) await ensureWarrantyForRequest(requestId, user.id);
+  if (status === ServiceRequestStatus.SERVICO_CONCLUIDO || status === ServiceRequestStatus.FINALIZADO) await ensureWarrantyForRequest(requestId, user.id);
   await notifyRequester(requestId, 'Status da solicitacao atualizado', `${current.protocol} agora esta com status ${status}.`);
   await audit(user.id, 'STATUS_CHANGED', 'ServiceRequest', requestId, { from: current.currentStatus, to: status });
   revalidatePath(`/requests/${requestId}`);
