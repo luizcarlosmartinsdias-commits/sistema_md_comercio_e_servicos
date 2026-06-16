@@ -72,7 +72,7 @@ export default async function RequestPage({ params }: { params: { id: string } }
           <button className="btn">Enviar anexo</button>
         </form>
         {canRequestInvoice(user.role) ? <form action={requestInvoiceAction} className="mt-4"><input type="hidden" name="requestId" value={request.id} /><button className="btn-secondary">Solicitar nota fiscal</button></form> : null}
-        <ul className="mt-4 space-y-2 text-sm">{request.attachments.map((attachment) => <li key={attachment.id} className="flex justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"><span>{attachment.type} - {attachment.fileName}</span><a className="font-semibold text-mdblue" href={`/api/attachments/${attachment.id}`}>Baixar</a></li>)}</ul>
+        <ul className="mt-4 space-y-2 text-sm">{request.attachments.map((attachment) => <li key={attachment.id} className="flex flex-wrap justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"><span>{attachment.type} - {attachment.fileName}</span><span className="flex gap-3"><a className="font-semibold text-mdblue" href={`/api/attachments/${attachment.id}?view=1`} target="_blank" rel="noreferrer">Visualizar</a><a className="font-semibold text-mdblue" href={`/api/attachments/${attachment.id}`}>Baixar</a></span></li>)}</ul>
       </div>
     </section>
 
@@ -84,7 +84,8 @@ export default async function RequestPage({ params }: { params: { id: string } }
         <div className="overflow-x-auto rounded-md border border-slate-200"><table className="w-full text-left text-sm"><thead><tr className="border-b bg-slate-50"><th className="p-2">Serviço/peça</th><th>Qtd.</th><th>Valor unitário</th><th>Total</th></tr></thead><tbody>{latestQuote.items.map((item) => <tr key={item.id} className="border-b last:border-0"><td className="p-2">{item.description}</td><td>{item.quantity}</td><td>{formatMoney(item.unitCents)}</td><td>{formatMoney(item.quantity * item.unitCents)}</td></tr>)}</tbody></table></div>
         <div className="grid gap-2 rounded-md bg-slate-50 p-3 md:grid-cols-4"><span>Subtotal: <strong>{formatMoney(latestQuote.subtotalCents || latestQuote.totalCents + latestQuote.discountCents)}</strong></span><span>Desconto: <strong>{formatMoney(latestQuote.discountCents)}</strong></span><span>Validade: <strong>{latestQuote.validityDays} dias</strong></span><span>Garantia: <strong>{latestQuote.warrantyDays} dias</strong></span></div>
         <div className="flex flex-wrap gap-3">
-          {latestQuote.pdfAttachment ? <a className="font-semibold text-mdblue" href={`/api/attachments/${latestQuote.pdfAttachment.id}`}>Baixar PDF do orçamento</a> : null}
+          {latestQuote.pdfAttachment ? <a className="btn-secondary" href={`/api/attachments/${latestQuote.pdfAttachment.id}?view=1`} target="_blank" rel="noreferrer">Visualizar orçamento</a> : null}
+          {latestQuote.pdfAttachment ? <a className="btn" href={`/api/attachments/${latestQuote.pdfAttachment.id}`}>Baixar orçamento</a> : null}
           {latestQuote.attachment ? <a className="font-semibold text-mdblue" href={`/api/attachments/${latestQuote.attachment.id}`}>Baixar anexo de apoio</a> : null}
         </div>
         {mdUser ? <ResendQuoteEmailForm requestId={request.id} /> : null}
