@@ -6,7 +6,7 @@ import { AttachmentType, QuoteStatus, ServiceRequestStatus, UserRole } from '@pr
 import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/session';
 import { audit } from '@/lib/audit';
-import { canApproveQuote, canCreateRequest, canManageMd, canRequestInvoice, clientRoleFilter, clientRoleForPersistence, displayRole, isClient } from '@/lib/rbac';
+import { canApproveQuote, canCreateRequest, canManageMd, canRequestInvoice, clientRoleForPersistence, displayRole, isClient } from '@/lib/rbac';
 import { addHours, createPlainToken, hashToken } from '@/lib/tokens';
 import { hashPassword } from '@/lib/password';
 import { nextProtocol } from '@/lib/protocol';
@@ -26,6 +26,7 @@ type QuoteEmailRequest = {
   marca: string;
   modelo: string;
   company: { name: string };
+  requester: { id: string; email: string; active: boolean };
 };
 
 const notifications = new NotificationService(prisma);
@@ -295,7 +296,7 @@ export async function updateStatusAction(form: FormData) {
   const status = text(form, 'status') as ServiceRequestStatus;
   const current = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
   await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: status, statusHistory: { create: { fromStatus: current.currentStatus, toStatus: status, changedById: user.id, note: text(form, 'note') || null } } } });
-  await notifyCompanyClients(requestId, 'Status da solicitacao atualizado', `${current.protocol} agora esta com status ${status}.`);
+  await notifyRequester(requestId, 'Status da solicitacao atualizado', `${current.protocol} agora esta com status ${status}.`);
   await audit(user.id, 'STATUS_CHANGED', 'ServiceRequest', requestId, { from: current.currentStatus, to: status });
   revalidatePath(`/requests/${requestId}`);
 }
@@ -334,7 +335,7 @@ export async function createQuoteAction(form: FormData) {
   const pdfAttachment = await prisma.attachment.create({ data: { serviceRequestId: requestId, uploadedById: user.id, type: AttachmentType.ORCAMENTO, ...storedPdf } });
   await prisma.quote.update({ where: { id: quote.id }, data: { pdfAttachmentId: pdfAttachment.id } });
   await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, statusHistory: { create: { fromStatus: current.currentStatus, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: `Orcamento criado: ${quote.quoteNumber}` } } } });
-  const emailResult = await sendQuoteEmailToCompanyClients(current, quote, pdfFileName, pdfBytes);
+  const emailResult = await sendQuoteEmailToRequester(current, quote, pdfFileName, pdfBytes);
   await prisma.serviceRequestStatusHistory.create({ data: { serviceRequestId: requestId, fromStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, toStatus: ServiceRequestStatus.AGUARDANDO_APROVACAO, changedById: user.id, note: quoteEmailHistoryNote(emailResult) } });
   await audit(user.id, 'QUOTE_CREATED', 'Quote', quote.id, { quoteNumber: quote.quoteNumber, subtotalCents, discountCents, totalCents, emailResult });
   revalidatePath(`/requests/${requestId}`);
@@ -353,7 +354,7 @@ async function decideQuote(form: FormData, approved: boolean) {
   await prisma.quote.update({ where: { id: quote.id }, data: { status: approved ? QuoteStatus.APROVADO : QuoteStatus.RECUSADO, decidedAt: new Date(), decisionNote: note } });
   await prisma.serviceRequest.update({ where: { id: quote.serviceRequestId }, data: { currentStatus: status, statusHistory: { create: { fromStatus: quote.serviceRequest.currentStatus, toStatus: status, changedById: user.id, note: approved ? 'Orcamento aprovado' : note || 'Orcamento recusado' } } } });
   await safeNotifyMd(approved ? 'Orcamento aprovado' : 'Orcamento recusado', `${quote.serviceRequest.protocol} teve decisao do cliente.`, quote.serviceRequestId);
-  await notifyCompanyClients(quote.serviceRequestId, approved ? 'Orcamento aprovado' : 'Orcamento recusado', `${quote.serviceRequest.protocol} teve decisao de orcamento registrada.`);
+  await notifyRequester(quote.serviceRequestId, approved ? 'Orcamento aprovado' : 'Orcamento recusado', `${quote.serviceRequest.protocol} teve decisao de orcamento registrada.`);
   await audit(user.id, approved ? 'QUOTE_APPROVED' : 'QUOTE_REJECTED', 'Quote', quote.id);
   revalidatePath(`/requests/${quote.serviceRequestId}`);
 }
@@ -402,32 +403,32 @@ async function safeNotifyMd(subject: string, body: string, serviceRequestId?: st
   try { await notifications.notifyMd(subject, body, serviceRequestId); } catch (error) { console.error('[notification] Falha ao notificar MD', { serviceRequestId, subject, error: errorMessage(error) }); }
 }
 
-async function notifyCompanyClients(requestId: string, subject: string, body: string) {
-  const request = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
-  const clients = await prisma.user.findMany({ where: { companyId: request.companyId, role: clientRoleFilter(), active: true } });
-  await Promise.all(clients.map(async (client) => {
-    try { await notifications.email({ serviceRequestId: requestId, recipient: client.email, subject, body }); } catch (error) { console.error('[notification] Falha ao notificar cliente', { serviceRequestId: requestId, clientId: client.id, subject, error: errorMessage(error) }); }
-  }));
+async function notifyRequester(requestId: string, subject: string, body: string) {
+  const request = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId }, include: { requester: true } });
+  if (!request.requester.active) return;
+  try { await notifications.email({ serviceRequestId: requestId, recipient: request.requester.email, subject, body }); } catch (error) { console.error('[notification] Falha ao notificar solicitante', { serviceRequestId: requestId, requesterId: request.requesterId, subject, error: errorMessage(error) }); }
 }
 
-async function sendQuoteEmailToCompanyClients(request: QuoteEmailRequest, quote: { id: string; quoteNumber: string | null; totalCents: number }, pdfFileName: string, pdfBytes: Uint8Array) {
-  const clients = await prisma.user.findMany({ where: { companyId: request.companyId, role: clientRoleFilter(), active: true } });
+async function sendQuoteEmailToRequester(request: QuoteEmailRequest, quote: { id: string; quoteNumber: string | null; totalCents: number }, pdfFileName: string, pdfBytes: Uint8Array) {
   const subject = `Orcamento disponivel para aprovacao - ${request.protocol}`;
   const body = [`Protocolo: ${request.protocol}`, `Empresa: ${request.company.name}`, `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`, `Valor total: ${formatMoney(quote.totalCents)}`, `Acesse o portal para aprovar ou reprovar: ${appUrl()}/requests/${request.id}`, 'O PDF padronizado do orcamento esta anexado a este e-mail.'].join('\n');
   const attachment = { filename: pdfFileName, content: Buffer.from(pdfBytes).toString('base64') };
-  let sent = 0;
-  let failed = 0;
-  for (const client of clients) {
-    try { await notifications.email({ serviceRequestId: request.id, recipient: client.email, subject, body, attachments: [attachment] }); sent += 1; } catch (error) { failed += 1; console.error('[quote] Falha ao enviar orcamento por e-mail', { serviceRequestId: request.id, quoteId: quote.id, clientId: client.id, error: errorMessage(error) }); }
+
+  if (!request.requester.active) return { sent: 0, failed: 0, totalClients: 0 };
+
+  try {
+    await notifications.email({ serviceRequestId: request.id, recipient: request.requester.email, subject, body, attachments: [attachment] });
+    return { sent: 1, failed: 0, totalClients: 1 };
+  } catch (error) {
+    console.error('[quote] Falha ao enviar orcamento por e-mail ao solicitante', { serviceRequestId: request.id, quoteId: quote.id, requesterId: request.requester.id, error: errorMessage(error) });
+    return { sent: 0, failed: 1, totalClients: 1 };
   }
-  return { sent, failed, totalClients: clients.length };
 }
 
 function quoteEmailHistoryNote(result: { sent: number; failed: number; totalClients: number }) {
-  if (result.totalClients === 0) return 'Orcamento criado, mas nao havia clientes ativos para envio por e-mail.';
-  if (result.failed > 0 && result.sent > 0) return `Orcamento enviado para ${result.sent} cliente(s), com falha para ${result.failed}.`;
-  if (result.failed > 0) return 'Falha no envio do orcamento por e-mail.';
-  return `Orcamento enviado por e-mail para ${result.sent} cliente(s).`;
+  if (result.totalClients === 0) return 'Orcamento criado, mas o usuario solicitante esta inativo para envio por e-mail.';
+  if (result.failed > 0) return 'Falha no envio do orcamento por e-mail ao usuario solicitante.';
+  return 'Orcamento enviado por e-mail para o usuario solicitante.';
 }
 
 async function clientHasHistory(clientId: string) {
