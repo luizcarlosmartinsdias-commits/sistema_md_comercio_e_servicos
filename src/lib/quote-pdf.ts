@@ -107,9 +107,14 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
 
   async function drawBrandHeader() {
     try {
-      const logoBytes = await readFile(path.join(process.cwd(), 'public', 'logo-md-horizontal.png'));
+      const logoBytes = await readFile(path.join(process.cwd(), 'public', 'brand', 'logo_orcamento.png'));
       const logo = await pdf.embedPng(logoBytes);
-      page.drawImage(logo, { x: margin, y: y - 82, width: 150, height: 88 });
+      const maxWidth = 172;
+      const maxHeight = 92;
+      const ratio = Math.min(maxWidth / logo.width, maxHeight / logo.height);
+      const width = logo.width * ratio;
+      const height = logo.height * ratio;
+      page.drawImage(logo, { x: margin, y: y - height - 4, width, height });
     } catch (error) {
       console.error('[quote-pdf]', { etapa: 'load_logo_failed', quoteId: quote.id, requestId: request.id, error: errorMessage(error) });
       page.drawRectangle({ x: margin, y: y - 72, width: 150, height: 70, borderColor: blue, borderWidth: 1.2, color: lightBlue });
