@@ -1,4 +1,4 @@
-import { AttachmentType, ServiceRequestStatus } from '@prisma/client';
+import { AttachmentType, ServiceRequestStatus, WarrantyStatus } from '@prisma/client';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { QuoteForm } from '@/components/quote-form';
@@ -7,16 +7,19 @@ import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/session';
 import { canApproveQuote, canManageMd, canRequestInvoice } from '@/lib/rbac';
 import { approveQuoteAction, rejectQuoteAction, requestInvoiceAction, updateStatusAction, uploadAttachmentAction } from '@/lib/actions';
+import { openWarrantyClaimAction, updateWarrantyStatusAction } from '@/lib/warranty';
 import { formatMoney } from '@/lib/format';
 
 export default async function RequestPage({ params }: { params: { id: string } }) {
   const user = await requireSessionUser();
   const mdUser = canManageMd(user.role);
+  const now = new Date();
   const request = await prisma.serviceRequest.findFirst({
     where: { id: params.id, ...(mdUser ? {} : { companyId: user.companyId ?? '' }) },
     include: {
       company: true,
       requester: true,
+      warranty: true,
       statusHistory: { include: { changedBy: true }, orderBy: { createdAt: 'desc' } },
       quotes: { include: { items: { include: { serviceCatalog: true } }, attachment: true, pdfAttachment: true }, orderBy: { createdAt: 'desc' } },
       attachments: { include: { uploadedBy: true }, orderBy: { createdAt: 'desc' } },
@@ -30,6 +33,7 @@ export default async function RequestPage({ params }: { params: { id: string } }
   const attachmentOptions = mdUser
     ? [AttachmentType.FOTO_PROBLEMA, AttachmentType.OS_ASSINADA_MD, AttachmentType.NOTA_FISCAL, AttachmentType.OUTRO]
     : [AttachmentType.FOTO_PROBLEMA, AttachmentType.OS_CLIENTE, AttachmentType.OUTRO];
+  const warrantyStatus = request.warranty ? effectiveWarrantyStatus(request.warranty.status, request.warranty.endDate, now) : null;
 
   return <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
     <Link href="/dashboard" className="text-sm font-semibold text-mdblue">Voltar</Link>
@@ -93,6 +97,20 @@ export default async function RequestPage({ params }: { params: { id: string } }
       {canDecideQuote ? <div className="mt-4 grid gap-3 md:grid-cols-2"><form action={approveQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observação opcional" /><button className="btn">Aprovar orçamento</button></form><form action={rejectQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observação opcional" /><button className="btn-secondary">Reprovar orçamento</button></form></div> : null}
     </section> : null}
 
+    {request.warranty ? <section className="card">
+      <h2 className="font-semibold">Garantia</h2>
+      <div className="mt-3 grid gap-3 text-sm md:grid-cols-4">
+        <div><span className="font-semibold">Status</span><br /><span className="badge">{warrantyStatus}</span></div>
+        <div><span className="font-semibold">Início</span><br />{request.warranty.startDate.toLocaleDateString('pt-BR')}</div>
+        <div><span className="font-semibold">Vencimento</span><br />{request.warranty.endDate.toLocaleDateString('pt-BR')}</div>
+        <div><span className="font-semibold">Prazo</span><br />{request.warranty.warrantyDays} dias</div>
+      </div>
+      {request.warranty.issueDescription ? <p className="mt-3 rounded bg-slate-50 p-2 text-sm"><strong>Solicitação:</strong> {request.warranty.issueDescription}</p> : null}
+      {request.warranty.decisionNote ? <p className="mt-2 rounded bg-slate-50 p-2 text-sm"><strong>Observação MD:</strong> {request.warranty.decisionNote}</p> : null}
+      {mdUser ? <form action={updateWarrantyStatusAction} className="mt-4 grid gap-2 md:grid-cols-[220px_1fr_auto]"><input type="hidden" name="warrantyId" value={request.warranty.id} /><select name="status" defaultValue={request.warranty.status}>{Object.values(WarrantyStatus).map((item) => <option key={item} value={item}>{item}</option>)}</select><input name="decisionNote" placeholder="Observação da garantia" defaultValue={request.warranty.decisionNote ?? ''} /><button className="btn">Atualizar garantia</button></form> : null}
+      {!mdUser && warrantyStatus === WarrantyStatus.ATIVA ? <form action={openWarrantyClaimAction} className="mt-4 grid gap-2"><input type="hidden" name="warrantyId" value={request.warranty.id} /><textarea name="issueDescription" placeholder="Descreva o problema apresentado para acionar a garantia" required /><button className="btn-secondary">Solicitar atendimento em garantia</button></form> : null}
+    </section> : null}
+
     {mdUser ? <section className="card">
       <h2 className="font-semibold">Logs de notificação</h2>
       {request.notifications.length === 0 ? <p className="mt-3 text-sm text-slate-600">Nenhuma notificação registrada para esta solicitação.</p> : <div className="mt-4 overflow-x-auto rounded-md border border-slate-200">
@@ -108,4 +126,9 @@ export default async function RequestPage({ params }: { params: { id: string } }
       <ol className="mt-4 space-y-3 text-sm">{request.statusHistory.map((item) => <li key={item.id} className="border-l-2 border-mdblue pl-3"><strong>{item.toStatus}</strong><br /><span className="text-slate-600">{item.changedBy.name} em {item.createdAt.toLocaleString('pt-BR')} {item.note ? `- ${item.note}` : ''}</span></li>)}</ol>
     </section>
   </main>;
+}
+
+function effectiveWarrantyStatus(status: WarrantyStatus, endDate: Date, now: Date) {
+  if (status === WarrantyStatus.ATIVA && endDate < now) return WarrantyStatus.VENCIDA;
+  return status;
 }
