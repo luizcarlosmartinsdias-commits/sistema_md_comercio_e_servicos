@@ -47,26 +47,21 @@ export async function inviteUserAction(_previousState: ActionState, form: FormDa
   try {
     const user = await requireSessionUser();
     if (!canManageMd(user.role)) return { status: 'error', message: 'Acesso negado.' };
-
     const name = text(form, 'name');
     const email = text(form, 'email').toLowerCase();
     const requestedRole = text(form, 'role');
     const role = requestedRole === 'ADMIN_MD' ? UserRole.ADMIN_MD : clientRoleForPersistence;
     const companyId = role === UserRole.ADMIN_MD ? null : text(form, 'companyId') || null;
-
     if (!name) return { status: 'error', message: 'Informe o nome do usuario.' };
     if (!email || !email.includes('@')) return { status: 'error', message: 'Informe um e-mail valido.' };
     if (requestedRole !== 'CLIENTE' && requestedRole !== 'ADMIN_MD') return { status: 'error', message: 'Perfil de usuario invalido.' };
     if (role !== UserRole.ADMIN_MD && !companyId) return { status: 'error', message: 'Cliente precisa estar vinculado a uma empresa.' };
-
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser?.active) return { status: 'error', message: 'Este usuario ja existe e esta ativo.' };
     if (existingUser && !existingUser.active) return { status: 'error', message: 'Este cliente esta inativo. Reative o cadastro em vez de enviar novo convite.' };
-
     const plainToken = createPlainToken();
     const invitation = await prisma.invitationToken.create({ data: { email, name, role, companyId, plainToken, tokenHash: hashToken(plainToken), expiresAt: addHours(72), createdById: user.id } });
     const link = `${appUrl()}/invite/${plainToken}`;
-
     let emailSent = true;
     try {
       await notifications.email({ recipient: invitation.email, subject: 'Convite para o Portal MD', body: `Acesse ${link} para criar sua senha.` });
@@ -74,10 +69,8 @@ export async function inviteUserAction(_previousState: ActionState, form: FormDa
       emailSent = false;
       console.error('[invite] Convite criado, mas envio de e-mail falhou', { invitationId: invitation.id, email: invitation.email, error: errorMessage(error) });
     }
-
     await audit(user.id, 'USER_INVITED', 'InvitationToken', invitation.id, { email: invitation.email, role: displayRole(role), emailSent });
     revalidatePath('/dashboard');
-
     if (!emailSent) return { status: 'warning', message: 'Convite criado, mas houve falha no envio do e-mail.' };
     return { status: 'success', message: `Convite enviado com sucesso para ${invitation.email}.` };
   } catch (error) {
@@ -90,20 +83,16 @@ export async function acceptInvitationAction(_previousState: ActionState, form: 
   const token = text(form, 'token');
   const password = text(form, 'password');
   const confirmPassword = text(form, 'confirmPassword');
-
   if (!token) return { status: 'error', message: 'Convite invalido.' };
   if (password.length < 8) return { status: 'error', message: 'A senha deve ter pelo menos 8 caracteres.' };
   if (password !== confirmPassword) return { status: 'error', message: 'As senhas informadas nao conferem.' };
-
   try {
     const tokenHash = hashToken(token);
     const invitation = await prisma.invitationToken.findUnique({ where: { tokenHash } });
-
     if (!invitation) return { status: 'error', message: 'Convite invalido. Solicite um novo convite ao administrador.' };
     if (invitation.acceptedAt) return { status: 'error', message: 'Este convite ja foi aceito. Acesse a tela de login.' };
     if (invitation.expiresAt < new Date()) return { status: 'error', message: 'Este convite expirou. Solicite um novo convite ao administrador.' };
     if (isClient(invitation.role) && !invitation.companyId) return { status: 'error', message: 'Convite sem empresa vinculada. Solicite um novo convite ao administrador.' };
-
     const passwordHash = await hashPassword(password);
     const user = await prisma.user.upsert({ where: { email: invitation.email }, update: { name: invitation.name, role: invitation.role, companyId: invitation.companyId, passwordHash, active: true }, create: { name: invitation.name, email: invitation.email, role: invitation.role, companyId: invitation.companyId, passwordHash } });
     await prisma.invitationToken.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } });
@@ -112,7 +101,6 @@ export async function acceptInvitationAction(_previousState: ActionState, form: 
     console.error('[invite] Falha ao aceitar convite', { tokenFingerprint: tokenFingerprint(token), error: errorMessage(error) });
     return { status: 'error', message: 'Nao foi possivel criar seu acesso agora. Tente novamente ou solicite um novo convite.' };
   }
-
   redirect('/login?message=cadastro-criado');
 }
 
@@ -330,7 +318,9 @@ export async function createQuoteAction(form: FormData) {
   if (file instanceof File && file.size > 0) supportAttachmentId = (await saveAttachment(requestId, user.id, file, AttachmentType.OUTRO)).id;
   const quote = await prisma.quote.create({ data: { serviceRequestId: requestId, quoteNumber: nextQuoteNumber(current.protocol), title: `Orcamento ${current.protocol}`, description: notes || null, status: QuoteStatus.ENVIADO, subtotalCents, discountCents, totalCents, validityDays, warrantyDays, executionDeadlineDays, notes: notes || null, attachmentId: supportAttachmentId, items: { create: items.map(({ service, quantity, unitCents }) => ({ serviceCatalogId: service.id, description: `${service.name}: ${service.description}`, quantity, unitCents })) } }, include: { items: true } });
   const pdfBytes = await generateQuotePdf({ quote, request: current, portalUrl: `${appUrl()}/requests/${requestId}` });
-  const pdfFileName = `${quote.quoteNumber ?? quote.id}.pdf`;
+  const osCode = sanitizeFileName(current.protocol);
+  const quoteCode = sanitizeFileName(quote.quoteNumber ?? quote.id);
+  const pdfFileName = `${osCode}-${quoteCode}.pdf`;
   const storedPdf = await StorageService.saveBytes(pdfBytes, requestId, pdfFileName, 'application/pdf');
   const pdfAttachment = await prisma.attachment.create({ data: { serviceRequestId: requestId, uploadedById: user.id, type: AttachmentType.ORCAMENTO, ...storedPdf } });
   await prisma.quote.update({ where: { id: quote.id }, data: { pdfAttachmentId: pdfAttachment.id } });
@@ -413,9 +403,7 @@ async function sendQuoteEmailToRequester(request: QuoteEmailRequest, quote: { id
   const subject = `Orcamento disponivel para aprovacao - ${request.protocol}`;
   const body = [`Protocolo: ${request.protocol}`, `Empresa: ${request.company.name}`, `Aparelho: ${request.tipoAparelho} ${request.marca} ${request.modelo}`, `Valor total: ${formatMoney(quote.totalCents)}`, `Acesse o portal para aprovar ou reprovar: ${appUrl()}/requests/${request.id}`, 'O PDF padronizado do orcamento esta anexado a este e-mail.'].join('\n');
   const attachment = { filename: pdfFileName, content: Buffer.from(pdfBytes).toString('base64') };
-
   if (!request.requester.active) return { sent: 0, failed: 0, totalClients: 0 };
-
   try {
     await notifications.email({ serviceRequestId: request.id, recipient: request.requester.email, subject, body, attachments: [attachment] });
     return { sent: 1, failed: 0, totalClients: 1 };
@@ -452,6 +440,10 @@ function positiveInt(value: string, fallback: number) {
 function nextQuoteNumber(protocol: string) {
   const stamp = Date.now().toString(36).toUpperCase();
   return `ORC-${protocol}-${stamp}`;
+}
+
+function sanitizeFileName(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Erro desconhecido'; }
