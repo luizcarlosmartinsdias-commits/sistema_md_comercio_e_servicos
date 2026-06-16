@@ -15,7 +15,7 @@ export default async function RequestPage({ params }: { params: { id: string } }
   const mdUser = canManageMd(user.role);
   const now = new Date();
   const request = await prisma.serviceRequest.findFirst({
-    where: { id: params.id, ...(mdUser ? {} : { companyId: user.companyId ?? '' }) },
+    where: { id: params.id, ...(mdUser ? {} : { requesterId: user.id }) },
     include: {
       company: true,
       requester: true,
