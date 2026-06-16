@@ -1,4 +1,6 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
+import { readFile } from 'fs/promises';
+import path from 'path';
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type RGB } from 'pdf-lib';
 import type { Company, Quote, QuoteItem, ServiceRequest, User } from '@prisma/client';
 import { formatMoney } from '@/lib/format';
 
@@ -30,29 +32,28 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
   const black = rgb(0.08, 0.1, 0.12);
   let y = 800;
 
-  drawBrandHeader();
-  move(92);
+  await drawBrandHeader();
+  move(100);
 
   draw('ORÇAMENTO', margin, y, 25, bold, blue);
-  draw(`Nº do Orçamento: ${quote.quoteNumber ?? quote.id}`, 316, y + 6, 9, bold, black, 238);
-  draw(`Data de Emissão: ${formatDate(quote.createdAt)}`, 316, y - 10, 9, regular, black, 238);
-  move(30);
-  rule();
+  draw(`Nº do Orçamento: ${quote.quoteNumber ?? quote.id}`, 330, y + 6, 9, bold, black, 220);
+  draw(`Data de Emissão: ${formatDate(quote.createdAt)}`, 330, y - 10, 9, regular, black, 220);
   move(26);
+  rule();
+  move(24);
 
   section('Dados do Cliente');
   fullRow('Empresa / Cliente', request.company.name);
   twoColumnRow('CNPJ / CPF', displayValue(request.company.document), 'Protocolo / O.S.', request.protocol);
-  fullRow('Solicitante', displayValue(request.responsavel));
-  twoColumnRow('E-mail do cliente', displayValue(request.company.email), 'Telefone do cliente', displayValue(request.company.phone));
-  twoColumnRow('E-mail do usuário', displayValue(request.requester.email), 'Usuário que abriu', displayValue(request.requester.name));
+  twoColumnRow('Solicitante', displayValue(request.responsavel), 'Telefone', displayValue(request.telefone));
+  fullRow('E-mail', displayValue(request.requester.email));
   move(8);
 
   section('Dados do Equipamento');
   twoColumnRow('Equipamento', displayValue(request.tipoAparelho), 'Marca', displayValue(request.marca));
   twoColumnRow('Modelo', displayValue(request.modelo), 'Nº de Série / IMEI', displayValue(request.serial));
   fullRow('Defeito Informado', displayValue(request.problema));
-  if (request.observacoes) fullRow('Observações da O.S.', request.observacoes);
+  if (request.observacoes) fullRow('Observações', request.observacoes);
   move(8);
 
   section('Itens do Orçamento');
@@ -60,14 +61,14 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
 
   quote.items.forEach((item, index) => {
     const total = item.quantity * item.unitCents;
-    const descriptionLines = wrapText(item.description, 61, regular, 9);
+    const descriptionLines = wrapText(item.description, 318, regular, 9);
     ensure(20 + descriptionLines.length * 12);
     page.drawLine({ start: { x: margin, y: y - 7 }, end: { x: rightEdge, y: y - 7 }, thickness: 0.4, color: line });
     draw(String(index + 1), margin + 6, y, 9, regular, black);
-    descriptionLines.forEach((lineText, lineIndex) => draw(lineText, margin + 38, y - lineIndex * 12, 9, regular, black, 326));
-    draw(String(item.quantity), 382, y, 9, regular, black);
-    draw(formatMoney(item.unitCents), 425, y, 9, regular, black);
-    draw(formatMoney(total), 500, y, 9, regular, black);
+    descriptionLines.forEach((lineText, lineIndex) => draw(lineText, margin + 38, y - lineIndex * 12, 9, regular, black, 318));
+    draw(String(item.quantity), 382, y, 9, regular, black, 26);
+    draw(formatMoney(item.unitCents), 425, y, 9, regular, black, 68);
+    draw(formatMoney(total), 500, y, 9, regular, black, 54);
     move(Math.max(22, descriptionLines.length * 12 + 10));
   });
   move(8);
@@ -82,7 +83,7 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
   page.drawRectangle({ x: 339, y: y - 58, width: 215, height: 24, color: lightBlue });
   draw('VALOR FINAL', 352, y - 50, 12, bold, blue);
   draw(formatMoney(quote.totalCents), 468, y - 50, 12, bold, blue);
-  move(90);
+  move(88);
 
   section('Condições');
   twoColumnRow('Validade', `${quote.validityDays} dias`, 'Garantia', `${quote.warrantyDays} dias`);
@@ -90,24 +91,33 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
   fullRow('Forma de Pagamento', 'Conforme negociação entre as partes.');
   if (quote.notes) fullRow('Observações', quote.notes);
 
-  ensure(76);
-  y = Math.max(y - 18, 78);
+  ensure(64);
+  y = Math.max(y - 14, 78);
   rule();
-  move(18);
+  move(16);
   draw(`Portal: ${portalUrl}`, margin, y, 8, regular, gray, contentWidth);
-  move(14);
+  move(13);
   draw('Documento gerado pelo Portal MD Comércio e Serviços', margin, y, 8, regular, gray, contentWidth);
-  move(14);
+  move(13);
   draw('A aprovação deste orçamento autoriza a execução dos serviços descritos.', margin, y, 8, regular, gray, contentWidth);
 
   const pdfBytes = await pdf.save();
   console.info('[quote-pdf]', { etapa: 'generate_pdf_done', quoteId: quote.id, requestId: request.id, protocol: request.protocol, pdfBytes: pdfBytes.length });
   return pdfBytes;
 
-  function drawBrandHeader() {
-    page.drawRectangle({ x: margin, y: y - 76, width: 150, height: 70, borderColor: blue, borderWidth: 1.2, color: lightBlue });
-    draw('MD', margin + 22, y - 40, 34, bold, blue);
-    draw('Comércio e Serviços', margin + 22, y - 60, 8, regular, black);
+  async function drawBrandHeader() {
+    try {
+      const logoBytes = await readFile(path.join(process.cwd(), 'public', 'logo-md-horizontal.png'));
+      const logo = await pdf.embedPng(logoBytes);
+      page.drawImage(logo, { x: margin, y: y - 82, width: 150, height: 88 });
+    } catch (error) {
+      console.error('[quote-pdf]', { etapa: 'load_logo_failed', quoteId: quote.id, requestId: request.id, error: errorMessage(error) });
+      page.drawRectangle({ x: margin, y: y - 72, width: 150, height: 70, borderColor: blue, borderWidth: 1.2, color: lightBlue });
+      draw('MD', margin + 18, y - 44, 36, bold, blue);
+      page.drawLine({ start: { x: margin + 18, y: y - 54 }, end: { x: margin + 128, y: y - 54 }, thickness: 1, color: blue });
+      draw('Comércio e Serviços', margin + 18, y - 66, 7, regular, black);
+    }
+
     draw(mdCompany.name, 210, y - 8, 16, bold, blue, 345);
     draw(`Razão Social: ${mdCompany.legalName}`, 210, y - 28, 9, regular, black, 345);
     draw(`CNPJ: ${mdCompany.document}`, 210, y - 44, 9, regular, black, 345);
@@ -122,7 +132,7 @@ export async function generateQuotePdf({ quote, request, portalUrl }: { quote: Q
   }
 
   function twoColumnRow(leftLabel: string, leftValue: string, rightLabel: string, rightValue: string) {
-    const leftLabelWidth = 94;
+    const leftLabelWidth = 106;
     const rightLabelWidth = 104;
     const leftValueX = margin + leftLabelWidth;
     const rightLabelX = 318;
@@ -243,6 +253,10 @@ function fitText(value: string, width: number, font: PDFFont, size: number) {
   let output = clean;
   while (output.length > 4 && font.widthOfTextAtSize(`${output}...`, size) > width) output = output.slice(0, -1);
   return `${output}...`;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Erro desconhecido';
 }
 
 function safe(value: string) {
