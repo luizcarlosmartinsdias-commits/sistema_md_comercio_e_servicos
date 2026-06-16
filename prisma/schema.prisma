@@ -54,6 +54,16 @@ enum NotificationChannel {
   INTERNAL
 }
 
+enum WarrantyStatus {
+  ATIVA
+  VENCIDA
+  SOLICITACAO_ABERTA
+  EM_ANALISE
+  APROVADA
+  RECUSADA
+  FINALIZADA
+}
+
 model Company {
   id          String   @id @default(cuid())
   name        String
@@ -64,6 +74,7 @@ model Company {
   users       User[]
   invitations InvitationToken[]
   requests    ServiceRequest[]
+  warranties  Warranty[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -80,6 +91,7 @@ model User {
   invitationsSent InvitationToken[] @relation("InvitationCreator")
   resetTokens     PasswordResetToken[]
   requests        ServiceRequest[] @relation("RequestRequester")
+  warranties      Warranty[] @relation("WarrantyRequester")
   statusChanges   ServiceRequestStatusHistory[]
   attachments     Attachment[]
   auditLogs       AuditLog[]
@@ -146,6 +158,7 @@ model ServiceRequest {
   quotes          Quote[]
   attachments     Attachment[]
   notifications   NotificationLog[]
+  warranty        Warranty?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
@@ -182,6 +195,7 @@ model Quote {
   attachment            Attachment? @relation("QuoteSupportAttachment", fields: [attachmentId], references: [id])
   pdfAttachmentId       String?
   pdfAttachment         Attachment? @relation("QuotePdfAttachment", fields: [pdfAttachmentId], references: [id])
+  warranties            Warranty[]
   decidedAt             DateTime?
   decisionNote          String?
   createdAt             DateTime @default(now())
@@ -217,6 +231,33 @@ model Attachment {
   createdAt         DateTime @default(now())
 }
 
+model Warranty {
+  id               String   @id @default(cuid())
+  serviceRequestId String   @unique
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  quoteId          String?
+  quote            Quote?   @relation(fields: [quoteId], references: [id])
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id])
+  requesterId      String
+  requester        User     @relation("WarrantyRequester", fields: [requesterId], references: [id])
+  warrantyDays     Int
+  startDate        DateTime
+  endDate          DateTime
+  status           WarrantyStatus @default(ATIVA)
+  issueDescription String?
+  decisionNote     String?
+  openedAt         DateTime?
+  closedAt         DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([requesterId])
+  @@index([status])
+  @@index([endDate])
+}
+
 model NotificationLog {
   id               String   @id @default(cuid())
   serviceRequestId String?
@@ -236,7 +277,7 @@ model AuditLog {
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])
   action    String
-  entity    String
+  entity    String?
   entityId  String?
   metadata  Json?
   createdAt DateTime @default(now())
