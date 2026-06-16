@@ -340,7 +340,7 @@ async function decideQuote(form: FormData, approved: boolean) {
   const user = await requireSessionUser();
   if (!canApproveQuote(user.role)) throw new Error('Acesso negado');
   const quote = await prisma.quote.findUniqueOrThrow({ where: { id: text(form, 'quoteId') }, include: { serviceRequest: true } });
-  if (quote.serviceRequest.companyId !== user.companyId) throw new Error('Acesso negado');
+  if (quote.serviceRequest.requesterId !== user.id) throw new Error('Acesso negado');
   const status = approved ? ServiceRequestStatus.ORCAMENTO_APROVADO : ServiceRequestStatus.ORCAMENTO_RECUSADO;
   const note = text(form, 'note') || null;
   await prisma.quote.update({ where: { id: quote.id }, data: { status: approved ? QuoteStatus.APROVADO : QuoteStatus.RECUSADO, decidedAt: new Date(), decisionNote: note } });
@@ -355,7 +355,7 @@ export async function uploadAttachmentAction(form: FormData) {
   const user = await requireSessionUser();
   const requestId = text(form, 'requestId');
   const request = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
-  if (!canManageMd(user.role) && request.companyId !== user.companyId) throw new Error('Acesso negado');
+  if (!canManageMd(user.role) && request.requesterId !== user.id) throw new Error('Acesso negado');
   const file = form.get('file');
   if (!(file instanceof File) || file.size === 0) throw new Error('Arquivo obrigatorio');
   const type = text(form, 'type') as AttachmentType;
@@ -373,7 +373,7 @@ export async function requestInvoiceAction(form: FormData) {
   if (!canRequestInvoice(user.role)) throw new Error('Perfil sem permissao para solicitar nota');
   const requestId = text(form, 'requestId');
   const request = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
-  if (request.companyId !== user.companyId) throw new Error('Acesso negado');
+  if (request.requesterId !== user.id) throw new Error('Acesso negado');
   await prisma.serviceRequest.update({ where: { id: requestId }, data: { currentStatus: ServiceRequestStatus.NOTA_SOLICITADA, statusHistory: { create: { fromStatus: request.currentStatus, toStatus: ServiceRequestStatus.NOTA_SOLICITADA, changedById: user.id, note: 'Cliente solicitou nota fiscal' } } } });
   await safeNotifyMd('Nota fiscal solicitada', `${request.protocol} solicitou emissao de nota fiscal.`, requestId);
   await audit(user.id, 'INVOICE_REQUESTED', 'ServiceRequest', requestId);
