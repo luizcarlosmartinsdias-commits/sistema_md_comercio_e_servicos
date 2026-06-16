@@ -22,7 +22,7 @@ export async function ensureWarrantyForRequest(serviceRequestId: string, changed
   });
 
   if (!request || request.warranty) return null;
-  if (![ServiceRequestStatus.SERVICO_CONCLUIDO, ServiceRequestStatus.FINALIZADO].includes(request.currentStatus)) return null;
+  if (request.currentStatus !== ServiceRequestStatus.SERVICO_CONCLUIDO && request.currentStatus !== ServiceRequestStatus.FINALIZADO) return null;
 
   const quote = request.quotes[0];
   if (!quote) return null;
@@ -104,7 +104,7 @@ export async function updateWarrantyStatusAction(form: FormData) {
   const status = text(form, 'status') as WarrantyStatus;
   const decisionNote = text(form, 'decisionNote') || null;
   const warranty = await prisma.warranty.findUniqueOrThrow({ where: { id: warrantyId }, include: { serviceRequest: true, requester: true } });
-  const closed = [WarrantyStatus.APROVADA, WarrantyStatus.RECUSADA, WarrantyStatus.FINALIZADA, WarrantyStatus.VENCIDA].includes(status);
+  const closed = status === WarrantyStatus.APROVADA || status === WarrantyStatus.RECUSADA || status === WarrantyStatus.FINALIZADA || status === WarrantyStatus.VENCIDA;
 
   await prisma.warranty.update({
     where: { id: warrantyId },
