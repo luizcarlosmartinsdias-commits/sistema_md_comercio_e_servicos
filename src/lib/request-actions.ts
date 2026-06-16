@@ -58,6 +58,7 @@ export async function deleteServiceRequestAction(_previousState: ActionState, fo
     if (!existing) return { status: 'error', message: 'Solicitacao nao encontrada.' };
 
     await prisma.$transaction(async (tx) => {
+      await tx.warranty.deleteMany({ where: { serviceRequestId: requestId } });
       const quotes = await tx.quote.findMany({ where: { serviceRequestId: requestId }, select: { id: true } });
       const quoteIds = quotes.map((quote) => quote.id);
       if (quoteIds.length > 0) {
