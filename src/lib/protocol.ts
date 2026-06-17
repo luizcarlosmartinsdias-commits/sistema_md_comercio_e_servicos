@@ -1,6 +1,8 @@
+import { prisma } from '@/lib/prisma';
+
 export async function nextProtocol() {
   const year = new Date().getFullYear();
-  const number = Date.now() % 100000;
-  const suffix = Math.random().toString(36).slice(2, 4).toUpperCase();
-  return `MD-${year}-${String(number).padStart(5, '0')}${suffix}`;
+  const rows = await prisma.$queryRaw<Array<{ value: bigint }>>`SELECT nextval('service_request_protocol_seq') AS value`;
+  const nextNumber = Number(rows[0]?.value ?? 1);
+  return `MD-${year}-${String(nextNumber).padStart(5, '0')}`;
 }
