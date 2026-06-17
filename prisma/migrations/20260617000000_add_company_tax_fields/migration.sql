@@ -1,0 +1,12 @@
+ALTER TABLE "Company" ADD COLUMN "taxName" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxDocument" TEXT;
+ALTER TABLE "Company" ADD COLUMN "municipalRegistration" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxEmail" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxPhone" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxZipCode" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxAddress" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxNumber" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxComplement" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxNeighborhood" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxCity" TEXT;
+ALTER TABLE "Company" ADD COLUMN "taxState" TEXT;
