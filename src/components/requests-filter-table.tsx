@@ -14,28 +14,19 @@ type RequestRow = {
 };
 
 type CompanyOption = { id: string; name: string };
-
-type FilterValue = { text: string; selected: string };
 type FilterKey = 'protocol' | 'company' | 'serial' | 'status' | 'requester';
-type Filters = Record<FilterKey, FilterValue>;
+type Filters = Record<FilterKey, string>;
 
-const emptyFilter = { text: '', selected: '' };
 const emptyFilters: Filters = {
-  protocol: { ...emptyFilter },
-  company: { ...emptyFilter },
-  serial: { ...emptyFilter },
-  status: { ...emptyFilter },
-  requester: { ...emptyFilter }
+  protocol: '',
+  company: '',
+  serial: '',
+  status: '',
+  requester: ''
 };
 
 const normalize = (value: string) => value.toLowerCase().trim();
-const matches = (value: string, filter: FilterValue) => {
-  const normalizedValue = normalize(value);
-  const matchesText = normalizedValue.includes(normalize(filter.text));
-  const matchesSelected = filter.selected ? value === filter.selected : true;
-  return matchesText && matchesSelected;
-};
-
+const matches = (value: string, filter: string) => normalize(value).includes(normalize(filter));
 const uniqueSorted = (values: string[]) => Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
 export function RequestsFilterTable({ requests, companies }: { requests: RequestRow[]; companies: CompanyOption[] }) {
@@ -57,8 +48,8 @@ export function RequestsFilterTable({ requests, companies }: { requests: Request
       && matches(request.requester.name, filters.requester);
   }), [requests, filters]);
 
-  function updateFilter(key: FilterKey, field: keyof FilterValue, value: string) {
-    setFilters((current) => ({ ...current, [key]: { ...current[key], [field]: value } }));
+  function updateFilter(key: FilterKey, value: string) {
+    setFilters((current) => ({ ...current, [key]: value }));
   }
 
   function resetFilters() {
@@ -82,11 +73,11 @@ export function RequestsFilterTable({ requests, companies }: { requests: Request
             <th></th>
           </tr>
           <tr className="border-b bg-slate-50 align-top">
-            <FilterCell label="protocolo" value={filters.protocol} options={options.protocol} onTextChange={(value) => updateFilter('protocol', 'text', value)} onSelectChange={(value) => updateFilter('protocol', 'selected', value)} />
-            <FilterCell label="empresa" value={filters.company} options={options.company} onTextChange={(value) => updateFilter('company', 'text', value)} onSelectChange={(value) => updateFilter('company', 'selected', value)} />
-            <FilterCell label="IMEI" value={filters.serial} options={options.serial} onTextChange={(value) => updateFilter('serial', 'text', value)} onSelectChange={(value) => updateFilter('serial', 'selected', value)} />
-            <FilterCell label="status" value={filters.status} options={options.status} onTextChange={(value) => updateFilter('status', 'text', value)} onSelectChange={(value) => updateFilter('status', 'selected', value)} />
-            <FilterCell label="solicitante" value={filters.requester} options={options.requester} onTextChange={(value) => updateFilter('requester', 'text', value)} onSelectChange={(value) => updateFilter('requester', 'selected', value)} />
+            <FilterCell id="protocol" label="protocolo" value={filters.protocol} options={options.protocol} onChange={(value) => updateFilter('protocol', value)} />
+            <FilterCell id="company" label="empresa" value={filters.company} options={options.company} onChange={(value) => updateFilter('company', value)} />
+            <FilterCell id="serial" label="IMEI" value={filters.serial} options={options.serial} onChange={(value) => updateFilter('serial', value)} />
+            <FilterCell id="status" label="status" value={filters.status} options={options.status} onChange={(value) => updateFilter('status', value)} />
+            <FilterCell id="requester" label="solicitante" value={filters.requester} options={options.requester} onChange={(value) => updateFilter('requester', value)} />
             <th></th>
           </tr>
         </thead>
@@ -105,12 +96,12 @@ export function RequestsFilterTable({ requests, companies }: { requests: Request
   </div>;
 }
 
-function FilterCell({ label, value, options, onTextChange, onSelectChange }: { label: string; value: FilterValue; options: string[]; onTextChange: (value: string) => void; onSelectChange: (value: string) => void }) {
-  return <th className="space-y-1 py-2 pr-2">
-    <input className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" placeholder={`Digitar ${label}`} value={value.text} onChange={(event) => onTextChange(event.target.value)} />
-    <select className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" value={value.selected} onChange={(event) => onSelectChange(event.target.value)}>
-      <option value="">Todos</option>
-      {options.map((option) => <option key={option} value={option}>{option}</option>)}
-    </select>
+function FilterCell({ id, label, value, options, onChange }: { id: string; label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+  const listId = `request-filter-${id}`;
+  return <th className="py-2 pr-2">
+    <input className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" list={listId} placeholder={`Digite ou selecione ${label}`} value={value} onChange={(event) => onChange(event.target.value)} />
+    <datalist id={listId}>
+      {options.map((option) => <option key={option} value={option} />)}
+    </datalist>
   </th>;
 }
