@@ -1,13 +1,14 @@
 import { WarrantyStatus } from '@prisma/client';
+import { normalizeImei, isValidImei } from '@/lib/imei';
 import { prisma } from '@/lib/prisma';
 
 export function normalizeSerial(serial: string) {
-  return serial.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  return normalizeImei(serial);
 }
 
 export async function findActiveWarrantyBySerial(serial: string) {
   const normalized = normalizeSerial(serial);
-  if (!normalized) return null;
+  if (!isValidImei(normalized)) return null;
 
   const warranties = await prisma.warranty.findMany({
     where: {
