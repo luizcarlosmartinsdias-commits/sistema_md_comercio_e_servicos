@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { RequestManagementForms } from '@/components/request-management-forms';
+import { serviceRequestStatusLabel } from '@/lib/status-labels';
 
 type RequestRow = {
   id: string;
@@ -36,15 +37,16 @@ export function RequestsFilterTable({ requests, companies }: { requests: Request
     protocol: uniqueSorted(requests.map((request) => request.protocol)),
     company: uniqueSorted(requests.map((request) => request.company.name)),
     serial: uniqueSorted(requests.map((request) => request.serial ?? '')),
-    status: uniqueSorted(requests.map((request) => request.currentStatus)),
+    status: uniqueSorted(requests.map((request) => serviceRequestStatusLabel(request.currentStatus))),
     requester: uniqueSorted(requests.map((request) => request.requester.name))
   }), [requests]);
 
   const filteredRequests = useMemo(() => requests.filter((request) => {
+    const statusLabel = serviceRequestStatusLabel(request.currentStatus);
     return matches(request.protocol, filters.protocol)
       && matches(request.company.name, filters.company)
       && matches(request.serial ?? '', filters.serial)
-      && matches(request.currentStatus, filters.status)
+      && matches(statusLabel, filters.status)
       && matches(request.requester.name, filters.requester);
   }), [requests, filters]);
 
@@ -85,7 +87,7 @@ export function RequestsFilterTable({ requests, companies }: { requests: Request
           <td className="py-3 font-medium">{request.protocol}</td>
           <td>{request.company.name}</td>
           <td>{request.serial || '-'}</td>
-          <td><span className="badge">{request.currentStatus}</span></td>
+          <td><span className="badge">{serviceRequestStatusLabel(request.currentStatus)}</span></td>
           <td>{request.requester.name}</td>
           <td><Link className="font-semibold text-mdblue" href={`/requests/${request.id}`}>Abrir</Link>{companies.length > 0 ? <div className="mt-2"><RequestManagementForms request={request} companies={companies} /></div> : null}</td>
         </tr>)}</tbody>
