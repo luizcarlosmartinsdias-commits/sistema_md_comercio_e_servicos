@@ -1,5 +1,6 @@
 'use client';
 
+import type { FormEvent } from 'react';
 import { useFormState, useFormStatus } from 'react-dom';
 import { deleteServiceRequestAction, updateServiceRequestAction } from '@/lib/request-actions';
 import { normalizeImei } from '@/lib/imei';
@@ -27,7 +28,7 @@ export function RequestManagementForms({ request, companies }: { request: Reques
   const [deleteState, deleteAction] = useFormState(deleteServiceRequestAction, initialState);
   const state = [editState, deleteState].find((item) => item.message) ?? initialState;
 
-  function onlyDigits(event: React.FormEvent<HTMLInputElement>) {
+  function onlyDigits(event: FormEvent<HTMLInputElement>) {
     event.currentTarget.value = normalizeImei(event.currentTarget.value);
   }
 
