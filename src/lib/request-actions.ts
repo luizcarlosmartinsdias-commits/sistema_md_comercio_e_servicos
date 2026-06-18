@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/session';
 import { audit } from '@/lib/audit';
+import { normalizeImei, isValidImei } from '@/lib/imei';
 import { canManageMd } from '@/lib/rbac';
 import type { ActionState } from '@/lib/actions';
 
@@ -22,13 +23,15 @@ export async function updateServiceRequestAction(_previousState: ActionState, fo
     const tipoAparelho = text(form, 'tipoAparelho');
     const marca = text(form, 'marca');
     const modelo = text(form, 'modelo');
-    const serial = text(form, 'serial');
+    const serial = normalizeImei(text(form, 'serial'));
     const problema = text(form, 'problema');
     const observacoes = text(form, 'observacoes') || null;
 
     if (!requestId || !companyId || !setor || !responsavel || !telefone || !tipoAparelho || !marca || !modelo || !serial || !problema) {
       return { status: 'error', message: 'Preencha os campos obrigatorios da solicitacao.' };
     }
+
+    if (!isValidImei(serial)) return { status: 'error', message: 'O IMEI deve conter exatamente 15 algarismos numericos.' };
 
     const existing = await prisma.serviceRequest.findUnique({ where: { id: requestId } });
     if (!existing) return { status: 'error', message: 'Solicitacao nao encontrada.' };
