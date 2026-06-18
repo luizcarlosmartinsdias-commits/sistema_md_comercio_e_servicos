@@ -9,6 +9,7 @@ import { canApproveQuote, canManageMd, canRequestInvoice } from '@/lib/rbac';
 import { approveQuoteAction, rejectQuoteAction, requestInvoiceAction, updateStatusAction, uploadAttachmentAction } from '@/lib/actions';
 import { openWarrantyClaimAction, updateWarrantyStatusAction } from '@/lib/warranty';
 import { formatMoney } from '@/lib/format';
+import { attachmentTypeLabel, notificationChannelLabel, notificationStatusLabel, quoteStatusLabel, serviceRequestStatusLabel, warrantyStatusLabel } from '@/lib/status-labels';
 
 export default async function RequestPage({ params }: { params: { id: string } }) {
   const user = await requireSessionUser();
@@ -44,7 +45,7 @@ export default async function RequestPage({ params }: { params: { id: string } }
           <h1 className="text-2xl font-bold">{request.protocol}</h1>
           <p className="text-sm text-slate-600">{request.company.name} - {request.tipoAparelho} {request.marca} {request.modelo}</p>
         </div>
-        <span className="badge">{request.currentStatus}</span>
+        <span className="badge">{serviceRequestStatusLabel(request.currentStatus)}</span>
       </div>
       <dl className="mt-4 grid gap-3 text-sm md:grid-cols-3">
         <div><dt className="font-semibold">Responsável</dt><dd>{request.responsavel}</dd></div>
@@ -59,7 +60,7 @@ export default async function RequestPage({ params }: { params: { id: string } }
         <h2 className="font-semibold">Operação MD</h2>
         <form action={updateStatusAction} className="mt-4 grid gap-3">
           <input type="hidden" name="requestId" value={request.id} />
-          <select name="status" defaultValue={request.currentStatus}>{Object.values(ServiceRequestStatus).map((status) => <option key={status} value={status}>{status}</option>)}</select>
+          <select name="status" defaultValue={request.currentStatus}>{Object.values(ServiceRequestStatus).map((status) => <option key={status} value={status}>{serviceRequestStatusLabel(status)}</option>)}</select>
           <input name="note" placeholder="Observação do status" />
           <button className="btn">Alterar status</button>
         </form>
@@ -71,19 +72,19 @@ export default async function RequestPage({ params }: { params: { id: string } }
         <h2 className="font-semibold">Anexos e documentos</h2>
         <form action={uploadAttachmentAction} encType="multipart/form-data" className="mt-4 grid gap-3">
           <input type="hidden" name="requestId" value={request.id} />
-          <select name="type">{attachmentOptions.map((type) => <option key={type} value={type}>{type}</option>)}</select>
+          <select name="type">{attachmentOptions.map((type) => <option key={type} value={type}>{attachmentTypeLabel(type)}</option>)}</select>
           <input name="file" type="file" required />
           <button className="btn">Enviar anexo</button>
         </form>
         {canRequestInvoice(user.role) ? <form action={requestInvoiceAction} className="mt-4"><input type="hidden" name="requestId" value={request.id} /><button className="btn-secondary">Solicitar nota fiscal</button></form> : null}
-        <ul className="mt-4 space-y-2 text-sm">{request.attachments.map((attachment) => <li key={attachment.id} className="flex flex-wrap justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"><span>{attachment.type} - {attachment.fileName}</span><span className="flex gap-3"><a className="font-semibold text-mdblue" href={`/api/attachments/${attachment.id}?view=1`} target="_blank" rel="noreferrer">Visualizar</a><a className="font-semibold text-mdblue" href={`/api/attachments/${attachment.id}`}>Baixar</a></span></li>)}</ul>
+        <ul className="mt-4 space-y-2 text-sm">{request.attachments.map((attachment) => <li key={attachment.id} className="flex flex-wrap justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"><span>{attachmentTypeLabel(attachment.type)} - {attachment.fileName}</span><span className="flex gap-3"><a className="font-semibold text-mdblue" href={`/api/attachments/${attachment.id}?view=1`} target="_blank" rel="noreferrer">Visualizar</a><a className="font-semibold text-mdblue" href={`/api/attachments/${attachment.id}`}>Baixar</a></span></li>)}</ul>
       </div>
     </section>
 
     {latestQuote ? <section className="card">
       <h2 className="font-semibold">Orçamento</h2>
       <div className="mt-3 space-y-3 text-sm text-slate-700">
-        <div className="flex flex-wrap items-center justify-between gap-2"><p><strong>{latestQuote.quoteNumber ?? latestQuote.title}</strong> - {latestQuote.status}</p><p className="text-base font-bold text-mdblue">{formatMoney(latestQuote.totalCents)}</p></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><p><strong>{latestQuote.quoteNumber ?? latestQuote.title}</strong> - {quoteStatusLabel(latestQuote.status)}</p><p className="text-base font-bold text-mdblue">{formatMoney(latestQuote.totalCents)}</p></div>
         {latestQuote.notes ?? latestQuote.description ? <p>{latestQuote.notes ?? latestQuote.description}</p> : null}
         <div className="overflow-x-auto rounded-md border border-slate-200"><table className="w-full text-left text-sm"><thead><tr className="border-b bg-slate-50"><th className="p-2">Serviço/peça</th><th>Qtd.</th><th>Valor unitário</th><th>Total</th></tr></thead><tbody>{latestQuote.items.map((item) => <tr key={item.id} className="border-b last:border-0"><td className="p-2">{item.description}</td><td>{item.quantity}</td><td>{formatMoney(item.unitCents)}</td><td>{formatMoney(item.quantity * item.unitCents)}</td></tr>)}</tbody></table></div>
         <div className="grid gap-2 rounded-md bg-slate-50 p-3 md:grid-cols-4"><span>Subtotal: <strong>{formatMoney(latestQuote.subtotalCents || latestQuote.totalCents + latestQuote.discountCents)}</strong></span><span>Desconto: <strong>{formatMoney(latestQuote.discountCents)}</strong></span><span>Validade: <strong>{latestQuote.validityDays} dias</strong></span><span>Garantia: <strong>{latestQuote.warrantyDays} dias</strong></span></div>
@@ -97,17 +98,17 @@ export default async function RequestPage({ params }: { params: { id: string } }
       {canDecideQuote ? <div className="mt-4 grid gap-3 md:grid-cols-2"><form action={approveQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observação opcional" /><button className="btn">Aprovar orçamento</button></form><form action={rejectQuoteAction} className="grid gap-2"><input type="hidden" name="quoteId" value={latestQuote.id} /><textarea name="note" placeholder="Observação opcional" /><button className="btn-secondary">Reprovar orçamento</button></form></div> : null}
     </section> : null}
 
-    {request.warranty ? <section className="card">
+    {request.warranty ? <section className="card" id="garantia">
       <h2 className="font-semibold">Garantia</h2>
       <div className="mt-3 grid gap-3 text-sm md:grid-cols-4">
-        <div><span className="font-semibold">Status</span><br /><span className="badge">{warrantyStatus}</span></div>
+        <div><span className="font-semibold">Status</span><br /><span className="badge">{warrantyStatusLabel(warrantyStatus)}</span></div>
         <div><span className="font-semibold">Início</span><br />{request.warranty.startDate.toLocaleDateString('pt-BR')}</div>
         <div><span className="font-semibold">Vencimento</span><br />{request.warranty.endDate.toLocaleDateString('pt-BR')}</div>
         <div><span className="font-semibold">Prazo</span><br />{request.warranty.warrantyDays} dias</div>
       </div>
       {request.warranty.issueDescription ? <p className="mt-3 rounded bg-slate-50 p-2 text-sm"><strong>Solicitação:</strong> {request.warranty.issueDescription}</p> : null}
       {request.warranty.decisionNote ? <p className="mt-2 rounded bg-slate-50 p-2 text-sm"><strong>Observação MD:</strong> {request.warranty.decisionNote}</p> : null}
-      {mdUser ? <form action={updateWarrantyStatusAction} className="mt-4 grid gap-2 md:grid-cols-[220px_1fr_auto]"><input type="hidden" name="warrantyId" value={request.warranty.id} /><select name="status" defaultValue={request.warranty.status}>{Object.values(WarrantyStatus).map((item) => <option key={item} value={item}>{item}</option>)}</select><input name="decisionNote" placeholder="Observação da garantia" defaultValue={request.warranty.decisionNote ?? ''} /><button className="btn">Atualizar garantia</button></form> : null}
+      {mdUser ? <form action={updateWarrantyStatusAction} className="mt-4 grid gap-2 md:grid-cols-[220px_1fr_auto]"><input type="hidden" name="warrantyId" value={request.warranty.id} /><select name="status" defaultValue={request.warranty.status}>{Object.values(WarrantyStatus).map((item) => <option key={item} value={item}>{warrantyStatusLabel(item)}</option>)}</select><input name="decisionNote" placeholder="Observação da garantia" defaultValue={request.warranty.decisionNote ?? ''} /><button className="btn">Atualizar garantia</button></form> : null}
       {!mdUser && warrantyStatus === WarrantyStatus.ATIVA ? <form action={openWarrantyClaimAction} className="mt-4 grid gap-2"><input type="hidden" name="warrantyId" value={request.warranty.id} /><textarea name="issueDescription" placeholder="Descreva o problema apresentado para acionar a garantia" required /><button className="btn-secondary">Solicitar atendimento em garantia</button></form> : null}
     </section> : null}
 
@@ -116,14 +117,14 @@ export default async function RequestPage({ params }: { params: { id: string } }
       {request.notifications.length === 0 ? <p className="mt-3 text-sm text-slate-600">Nenhuma notificação registrada para esta solicitação.</p> : <div className="mt-4 overflow-x-auto rounded-md border border-slate-200">
         <table className="w-full text-left text-sm">
           <thead><tr className="border-b bg-slate-50"><th className="p-2">Data</th><th>Canal</th><th>Status</th><th>Provedor</th><th>Destinatário</th><th>Assunto</th><th>Erro</th></tr></thead>
-          <tbody>{request.notifications.map((log) => <tr key={log.id} className="border-b align-top last:border-0"><td className="p-2 whitespace-nowrap">{log.createdAt.toLocaleString('pt-BR')}</td><td>{log.channel}</td><td className={log.status === 'FAILED' ? 'font-semibold text-red-700' : 'font-semibold text-green-700'}>{log.status}</td><td>{log.provider}</td><td>{log.recipient}</td><td>{log.subject}</td><td className="max-w-xs text-red-700">{log.errorMessage ?? '-'}</td></tr>)}</tbody>
+          <tbody>{request.notifications.map((log) => <tr key={log.id} className="border-b align-top last:border-0"><td className="p-2 whitespace-nowrap">{log.createdAt.toLocaleString('pt-BR')}</td><td>{notificationChannelLabel(log.channel)}</td><td className={log.status === 'FAILED' ? 'font-semibold text-red-700' : 'font-semibold text-green-700'}>{notificationStatusLabel(log.status)}</td><td>{log.provider}</td><td>{log.recipient}</td><td>{log.subject}</td><td className="max-w-xs text-red-700">{log.errorMessage ?? '-'}</td></tr>)}</tbody>
         </table>
       </div>}
     </section> : null}
 
     <section className="card">
       <h2 className="font-semibold">Histórico de status</h2>
-      <ol className="mt-4 space-y-3 text-sm">{request.statusHistory.map((item) => <li key={item.id} className="border-l-2 border-mdblue pl-3"><strong>{item.toStatus}</strong><br /><span className="text-slate-600">{item.changedBy.name} em {item.createdAt.toLocaleString('pt-BR')} {item.note ? `- ${item.note}` : ''}</span></li>)}</ol>
+      <ol className="mt-4 space-y-3 text-sm">{request.statusHistory.map((item) => <li key={item.id} className="border-l-2 border-mdblue pl-3"><strong>{serviceRequestStatusLabel(item.toStatus)}</strong><br /><span className="text-slate-600">{item.changedBy.name} em {item.createdAt.toLocaleString('pt-BR')} {item.note ? `- ${item.note}` : ''}</span></li>)}</ol>
     </section>
   </main>;
 }
