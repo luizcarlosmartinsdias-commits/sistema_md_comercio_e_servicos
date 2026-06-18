@@ -56,7 +56,7 @@ export function NewServiceRequestForm() {
     setTimeout(() => formRef.current?.requestSubmit(), 0);
   }
 
-  function onlyDigits(event: React.FormEvent<HTMLInputElement>) {
+  function onlyDigits(event: FormEvent<HTMLInputElement>) {
     event.currentTarget.value = normalizeImei(event.currentTarget.value);
   }
 
