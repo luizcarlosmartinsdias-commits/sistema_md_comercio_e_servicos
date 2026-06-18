@@ -2,6 +2,7 @@
 
 import { useFormState, useFormStatus } from 'react-dom';
 import { deleteServiceRequestAction, updateServiceRequestAction } from '@/lib/request-actions';
+import { normalizeImei } from '@/lib/imei';
 import type { ActionState } from '@/lib/actions';
 
 type CompanyOption = { id: string; name: string };
@@ -26,6 +27,10 @@ export function RequestManagementForms({ request, companies }: { request: Reques
   const [deleteState, deleteAction] = useFormState(deleteServiceRequestAction, initialState);
   const state = [editState, deleteState].find((item) => item.message) ?? initialState;
 
+  function onlyDigits(event: React.FormEvent<HTMLInputElement>) {
+    event.currentTarget.value = normalizeImei(event.currentTarget.value);
+  }
+
   return (
     <div className="space-y-2 rounded-md bg-slate-50 p-3">
       {state.message ? <p className={`text-xs ${messageClass(state.status)}`} role="status">{state.message}</p> : null}
@@ -40,7 +45,7 @@ export function RequestManagementForms({ request, companies }: { request: Reques
         <input name="tipoAparelho" defaultValue={request.tipoAparelho} placeholder="Tipo de aparelho" required />
         <input name="marca" defaultValue={request.marca} placeholder="Marca" required />
         <input name="modelo" defaultValue={request.modelo} placeholder="Modelo" required />
-        <input name="serial" defaultValue={request.serial} placeholder="Serial / IMEI" required />
+        <input name="serial" defaultValue={normalizeImei(request.serial)} placeholder="IMEI - 15 números" inputMode="numeric" pattern="[0-9]{15}" maxLength={15} minLength={15} title="Informe exatamente 15 algarismos numéricos" onInput={onlyDigits} required />
         <input name="problema" defaultValue={request.problema} placeholder="Problema informado" required />
         <textarea name="observacoes" defaultValue={request.observacoes ?? ''} placeholder="Observações" className="md:col-span-3" />
         <div className="flex flex-wrap gap-2 md:col-span-3">
