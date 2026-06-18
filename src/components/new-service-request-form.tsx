@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { FormEvent, useRef, useState } from 'react';
 import { createServiceRequestAction } from '@/lib/actions';
+import { warrantyStatusLabel } from '@/lib/status-labels';
 
 type WarrantyHit = {
   active: boolean;
@@ -54,7 +55,7 @@ export function NewServiceRequestForm() {
       <div className="mt-3 grid gap-2 md:grid-cols-3">
         <div><span className="font-semibold">O.S. de origem</span><br />{warranty.originProtocol}</div>
         <div><span className="font-semibold">Garantia válida até</span><br />{warranty.endDate ? new Date(warranty.endDate).toLocaleDateString('pt-BR') : '-'}</div>
-        <div><span className="font-semibold">Status</span><br />{warranty.status}</div>
+        <div><span className="font-semibold">Status</span><br />{warrantyStatusLabel(warranty.status ?? null)}</div>
       </div>
       <p className="mt-3">Verifique se o problema atual é o mesmo do atendimento anterior. Se for o mesmo problema, solicite atendimento em garantia. Se for outro problema, continue abrindo uma nova O.S.</p>
       {warranty.problem ? <p className="mt-2 rounded bg-white/70 p-2"><strong>Problema anterior:</strong> {warranty.problem}</p> : null}
