@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { RequestManagementForms } from '@/components/request-management-forms';
+import { normalizeImei } from '@/lib/imei';
 import { serviceRequestStatusLabel } from '@/lib/status-labels';
 
 type RequestRow = {
@@ -29,6 +30,7 @@ const emptyFilters: Filters = {
 const normalize = (value: string) => value.toLowerCase().trim();
 const matches = (value: string, filter: string) => normalize(value).includes(normalize(filter));
 const uniqueSorted = (values: string[]) => Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+const serialDisplay = (value: string) => normalizeImei(value) || '-';
 
 export function RequestsFilterTable({ requests, companies }: { requests: RequestRow[]; companies: CompanyOption[] }) {
   const [filters, setFilters] = useState<Filters>(emptyFilters);
@@ -36,7 +38,7 @@ export function RequestsFilterTable({ requests, companies }: { requests: Request
   const options = useMemo(() => ({
     protocol: uniqueSorted(requests.map((request) => request.protocol)),
     company: uniqueSorted(requests.map((request) => request.company.name)),
-    serial: uniqueSorted(requests.map((request) => request.serial ?? '')),
+    serial: uniqueSorted(requests.map((request) => normalizeImei(request.serial ?? ''))),
     status: uniqueSorted(requests.map((request) => serviceRequestStatusLabel(request.currentStatus))),
     requester: uniqueSorted(requests.map((request) => request.requester.name))
   }), [requests]);
@@ -45,7 +47,7 @@ export function RequestsFilterTable({ requests, companies }: { requests: Request
     const statusLabel = serviceRequestStatusLabel(request.currentStatus);
     return matches(request.protocol, filters.protocol)
       && matches(request.company.name, filters.company)
-      && matches(request.serial ?? '', filters.serial)
+      && matches(normalizeImei(request.serial ?? ''), filters.serial)
       && matches(statusLabel, filters.status)
       && matches(request.requester.name, filters.requester);
   }), [requests, filters]);
@@ -86,7 +88,7 @@ export function RequestsFilterTable({ requests, companies }: { requests: Request
         <tbody>{filteredRequests.map((request: any) => <tr key={request.id} className="border-b last:border-0">
           <td className="py-3 font-medium">{request.protocol}</td>
           <td>{request.company.name}</td>
-          <td>{request.serial || '-'}</td>
+          <td>{serialDisplay(request.serial)}</td>
           <td><span className="badge">{serviceRequestStatusLabel(request.currentStatus)}</span></td>
           <td>{request.requester.name}</td>
           <td><Link className="font-semibold text-mdblue" href={`/requests/${request.id}`}>Abrir</Link>{companies.length > 0 ? <div className="mt-2"><RequestManagementForms request={request} companies={companies} /></div> : null}</td>
